@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101523">
+  <title>银钥档案 · 忘却前夜抽卡分析</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="rail">
+      <div class="brand"><span class="brand-mark">✦</span><div><strong>银钥档案</strong><small>MORIMENS · SUMMON</small></div></div>
+      <nav aria-label="主导航">
+        <button class="nav active" data-view="overview"><span>◈</span> 总览</button>
+        <button class="nav" data-view="history"><span>▤</span> 抽卡记录</button>
+        <button class="nav" data-view="banners"><span>◷</span> 限时卡池</button>
+        <button class="nav" data-view="rules"><span>◇</span> 概率与规则</button>
+      </nav>
+      <div class="rail-bottom"><span class="status-dot"></span> 本机数据 · 不上传账号记录<br><small id="sync-time">读取中…</small></div>
+    </aside>
+    <main>
+      <header class="topbar"><div class="crumb">资料室 <span>/</span> <b id="view-name">抽卡总览</b></div><div class="top-actions"><button class="ghost" id="refresh">↻ 更新数据</button><button class="primary" id="share">↗ 生成分享图</button></div></header>
+      <section class="view active" id="overview">
+        <div class="hero"><div class="hero-copy"><div class="eyebrow">PERSONAL SUMMON ARCHIVE <span class="line"></span> 2026</div><h1>每一次唤醒，<br><em>都有迹可循。</em></h1><p>读取真实通讯历史，按卡池保存。完整度、SSR 间隔与 UP 判断都标明依据。</p><div class="hero-actions"><button class="primary" id="go-history">查看抽卡记录 <span>→</span></button><span>数据仅存储在本机</span></div></div><div class="hero-art"><div class="halo"></div><img id="hero-portrait" alt="角色立绘"></div></div>
+        <div class="notice" id="coverage-notice"></div>
+        <div class="section-head"><div><span class="kicker">OVERVIEW</span><h2>你的抽卡概况</h2></div><span class="subtle">基于已采集记录 · 各类别独立统计</span></div>
+        <div class="stat-grid" id="stats"></div>
+        <div class="dashboard-grid"><section class="panel"><div class="panel-head"><div><span class="kicker">POOLS</span><h3>卡池分布</h3></div><button class="text-button" data-target="history">查看全部 →</button></div><div id="pool-bars"></div></section><section class="panel"><div class="panel-head"><div><span class="kicker">SSR TIMELINE</span><h3>最近的闪光</h3></div><span class="subtle">抽数按同类别计算</span></div><div id="recent-ssr"></div></section></div>
+      </section>
+      <section class="view" id="history">
+        <div class="page-title"><div><span class="kicker">SUMMON LOG</span><h1>抽卡记录</h1><p>SSR 抽数从同类历史的上一个 SSR 起算；缺页时不推算。</p></div><div class="export-row"><button class="ghost" id="export-json">导出 JSON</button><button class="ghost" id="export-csv">导出 CSV</button></div></div>
+        <div class="filter-row"><div class="tabs" id="pool-tabs"></div><label class="search"><span>⌕</span><input id="search" placeholder="搜索角色、命轮或编号"></label><label class="check"><input type="checkbox" id="ssr-only"> 只看 SSR</label></div>
+        <div class="history-summary" id="history-summary"></div>
+        <div class="record-list" id="records"></div><button class="more" id="load-more">加载更多记录 ↓</button>
+      </section>
+      <section class="view" id="banners">
+        <div class="page-title"><div><span class="kicker">LIMITED BANNERS</span><h1>限时卡池日历</h1><p>SKeyDB 收录的活动时间（UTC+8）。同一时段可能有多个卡池，历史记录未包含确切卡池 ID。</p></div></div>
+        <div class="banner-grid" id="banner-grid"></div>
+        <p class="source-note">日程及图片来源：<a href="https://github.com/dansa/SKeyDB" target="_blank" rel="noreferrer">SKeyDB</a>。请以游戏内实际公告为准；图片仅供本地个人使用。</p>
+      </section>
+      <section class="view" id="rules">
+        <div class="page-title"><div><span class="kicker">PROBABILITY & TRUST</span><h1>概率与保底</h1><p>不同服务器与卡池可能使用不同规则。当前数值是可修改的参考假设，不会伪装成已核实的官方公示。</p></div></div>
+        <div class="rules-grid"><section class="panel rule-panel"><span class="kicker">REFERENCE PROFILE</span><h3>用于欧非估计的参考值</h3><div class="field-grid"><label>SSR 单抽基础概率 <span>%</span><input id="base-rate" type="number" min="0.01" max="100" step="0.01"></label><label>SSR 综合概率 <span>%</span><input id="combined-rate" type="number" min="0.01" max="100" step="0.01"></label><label>SSR 硬保底 <span>抽</span><input id="hard-pity" type="number" min="1" max="500" step="1"></label><label>当期 UP 概率 <span>%</span><input id="up-rate" type="number" min="0" max="100" step="1"></label></div><button class="primary" id="save-rules">保存本机设置</button><p class="source-note">默认示例采用社区常见的 3.02% / 30 抽 / 50% 描述；请按游戏内当前卡池的“概率详情”核对后调整。综合概率未用于欧非模型；模型仅用基础概率和硬保底。</p></section><section class="panel"><span class="kicker">HOW IT WORKS</span><h3>计算口径</h3><div class="explain"><b>SSR 抽数</b><p>同类别内两个 SSR 的历史序号之差；没有连续覆盖时显示“待补全”。</p><b>UP 与歪</b><p>历史接口没有卡池配置 ID。请在 SSR 记录中指定当期卡池；命中活动目标标记 UP，否则标记“歪”。未指定时只显示候选，不擅自判定。</p><b>欧非</b><p>以可计算的 SSR 间隔与参考概率模型的期望抽数比较。少于 5 次有效 SSR 间隔时显示“样本不足”。这是娱乐性描述，不能证明未来结果。</p></div></section></div>
+      </section>
+      <footer>银钥档案 · 本地抽卡分析工具 <span>·</span> 游戏素材归原权利人所有 <span>·</span> 非官方项目</footer>
+    </main>
+  </div>
+  <script src="/app.js" defer></script>
+</body>
+</html>

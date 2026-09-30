@@ -8,3 +8,4 @@ __pycache__/
 *session*key*
 private/
 data/local/
+web/assets/
