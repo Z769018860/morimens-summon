@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env*
+*.pcap
+*.pcapng
+*session*key*
+private/
+data/local/
