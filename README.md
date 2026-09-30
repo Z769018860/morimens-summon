@@ -1,13 +1,13 @@
 # morimens-summon
 
-忘却前夜（Morimens）抽卡记录分析工具。当前仓库处于方案阶段，目标是先支持用户主动导入记录、校对实体和查看统计，再逐步接入经验证的自动采集方式。
+忘却前夜（Morimens）抽卡记录分析工具。当前已能从本机通讯抓包中解出真实抽卡历史，并导出结构化 JSON/CSV；完整历史的稳定自动分页仍在实验阶段。
 
 ## 当前事实
 
-- 游戏抽卡历史走登录后的 `:8443` 自定义二进制通道；通用传输层已验证为 Sconn、会话密钥、RC4、LZ4、sproto、MessagePack 组合。
+- 游戏抽卡历史走登录后的 `:8443` 自定义二进制通道；本机加速器转发时可从 `:12887` 捕获对应业务流。传输层已验证为 Sconn、会话密钥、RC4、LZ4、sproto、MessagePack 组合。
 - 已确认 `type2RecordQueue`、保底计数等本地 Summon 状态字段，以及 `rewardList[index].tid/num`。
-- 已有五页共 25 条截图记录与网络响应长度对应；部分实体已有可信数值 ID 映射。
-- 普通 History 的 RPC 方法、请求参数和记录字段尚未解出，无法据此宣称可自动读取账号完整历史或查询任意 UID。
+- 已解出真实 RPC `Summon.QuerySummonHistory`，请求参数为 `[历史类别, 页码]`，响应含总条数与逐条的 `itemTid`、`name`、`timestamp`、`type`。类别 2、1 已与角色、命轮历史画面交叉核对。
+- 截至本次采集，类别 2 总数 203、类别 1 总数 80；另见类别 10、16、17，其具体含义尚待核对。自动独立查询已取得类别 2 前 10 页、50 条，但连续查询时连接被断开，不能宣称完整历史已取得。
 
 详细里程碑、数据模型、验证门槛见 [开发方案](docs/ROADMAP.md)。首批数据采集见 [数据获取步骤](docs/DATA_ACQUISITION.md)。
 
@@ -21,7 +21,9 @@ python summon_cli.py stats
 python summon_cli.py export "D:\个人数据\history-backup.csv"
 ```
 
-当前只提供离线数据录入和条数统计；稀有度由用户明确标注，不自动推断卡池保底。
+当前离线原型只提供 CSV 录入和条数统计；稀有度由用户明确标注，不自动推断卡池保底。通讯采集数据可由 `extract_history_records.py` 导出结构化 CSV，但尚未接入离线原型的正式记录库。
+
+通讯数据自动获取的实验工具和验证条件见 [协议采集状态](docs/PROTOCOL_CAPTURE.md)。
 
 ## 产品原则
 
