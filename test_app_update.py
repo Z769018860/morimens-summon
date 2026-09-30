@@ -33,6 +33,17 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(set(data["records"][0]),
                          {"history_type", "ordinal", "item_tid", "name", "timestamp"})
 
+    def test_running_game_without_auth_reports_relogin_action(self):
+        fake = FakeProcess("NO_CURRENT_AUTH\n", 2)
+        game = type("Game", (), {"info": {"name": "Morimens.exe"}})()
+        with patch.object(app.subprocess, "Popen", return_value=fake), \
+             patch.object(app.psutil, "process_iter", return_value=[game]):
+            app.UPDATE.update(running=True, phase="prepare", message="", log=[], result=None)
+            app.update_worker()
+        self.assertEqual(app.UPDATE["result"], "failed")
+        self.assertEqual(app.UPDATE["reason"], "auth_unavailable")
+        self.assertIn("重新登录", app.UPDATE["message"])
+
 
 if __name__ == "__main__":
     unittest.main()

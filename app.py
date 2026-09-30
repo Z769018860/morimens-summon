@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import psutil
 import sqlite3
 import subprocess
 import sys
@@ -35,13 +37,17 @@ def update_snapshot() -> dict:
     return result
 
 
-def update_worker() -> None:
+def update_worker(wait_auth: bool = False) -> None:
     command = [sys.executable, "-u", str(ROOT / "fetch_all_history.py")]
+    if wait_auth:
+        command.extend(["--wait-auth", "180"])
     partial = False
+    failure = None
     try:
+        env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
         process = subprocess.Popen(command, cwd=ROOT, stdout=subprocess.PIPE,
                                    stderr=subprocess.STDOUT, text=True, encoding="utf-8",
-                                   errors="replace", bufsize=1)
+                                   errors="replace", bufsize=1, env=env)
         assert process.stdout is not None
         for line in process.stdout:
             line = line.strip()
@@ -59,8 +65,23 @@ def update_worker() -> None:
             elif line.startswith("CONNECTION_PAUSED"):
                 partial = True
                 phase, message = "partial", "连接中断，已获取的页面均已保存。"
+            elif line.startswith("NO_CURRENT_AUTH"):
+                game_online = any((p.info.get("name") or "").lower() == "morimens.exe"
+                                  for p in psutil.process_iter(["name"]))
+                failure = "游戏正在运行，但当前登录材料已从内存释放。请点击“等待重新登录”，再重启游戏一次。" if game_online else "未检测到游戏进程。请先启动游戏并登录。"
+                phase, message = "failed", failure
+            elif line.startswith("WAITING_AUTH"):
+                phase, message = "waiting", "已开始等待新登录连接。现在请重启游戏一次并登录；检测到会话后将自动查询。"
+            elif line.startswith("GAME_NOT_RUNNING"):
+                failure = "未检测到游戏进程。请启动游戏并登录，再尝试更新。"
+                phase, message = "failed", failure
+            elif line.startswith("LOGIN_REJECTED"):
+                failure = "当前会话未通过游戏服务器验证。请重新登录游戏后再更新。"
+                phase, message = "failed", failure
             elif line.startswith("HISTORY_COVERAGE"):
                 phase, message = "finish", "正在核对各类别的采集范围…"
+            elif line.startswith(("INCREMENTAL_BOUNDARY", "WARNING:")):
+                continue
             else:
                 phase, message = "prepare", line[:180]
             with UPDATE_LOCK:
@@ -71,9 +92,10 @@ def update_worker() -> None:
         with UPDATE_LOCK:
             UPDATE["result"] = "partial" if partial else "complete" if code == 0 else "failed"
             UPDATE["phase"] = UPDATE["result"]
+            UPDATE["reason"] = "auth_unavailable" if failure and "登录材料" in failure else None
             UPDATE["message"] = ("更新完成，已保存所有获取的记录。" if code == 0 and not partial else
                                   "连接中断，已保存进度；请查看各类别覆盖情况。" if partial else
-                                  "本次更新未完成；请确认游戏正在运行且已登录。")
+                                  failure or "本次更新未完成；请查看上方提示后重试。")
             UPDATE["running"] = False
     except Exception as exc:
         with UPDATE_LOCK:
@@ -134,9 +156,13 @@ class Handler(BaseHTTPRequestHandler):
             if UPDATE["running"]:
                 self.send_json({"error": "已有更新正在进行"}, 409)
                 return
+            length = int(self.headers.get("Content-Length", "0"))
+            body = json.loads(self.rfile.read(length) or b"{}") if length < 1024 else {}
+            wait_auth = body.get("mode") == "wait"
             UPDATE.update(running=True, phase="prepare", message="正在准备读取当前游戏会话…",
-                          log=["开始更新；本次只进行一轮网关和历史查询登录。"], result=None)
-        threading.Thread(target=update_worker, daemon=True).start()
+                          log=["开始更新；本次只进行一轮网关和历史查询登录。"], result=None,
+                          reason=None)
+        threading.Thread(target=update_worker, args=(wait_auth,), daemon=True).start()
         self.send_json({"started": True}, 202)
 
 

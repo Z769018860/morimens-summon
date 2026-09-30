@@ -125,6 +125,7 @@ def main() -> None:
     ap.add_argument("--import-raw", type=Path, default=ROOT / "data" / "local" / "full_history_raw.json")
     ap.add_argument("--import-decoded", type=Path, default=ROOT / "data" / "local" / "loopback_decoded_snapshot.json")
     ap.add_argument("--local-only", action="store_true", help="只整理已保存数据，不登录或查询游戏")
+    ap.add_argument("--wait-auth", type=int, default=0, help="等待新登录材料的最长秒数")
     ap.add_argument("--types", type=int, nargs="+", default=[1, 2, 16, 17, 10])
     ap.add_argument("--max-pages", type=int, default=1000)
     ap.add_argument("--request-delay", type=float, default=0.05)
@@ -146,26 +147,43 @@ def main() -> None:
     pilot = load_research("morimens_direct_facade_pilot")
     fresh = load_research("morimens_fresh_memory_login_pilot")
     memory = load_research("inspect_morimens_auth_memory_readonly")
+    deadline = time.monotonic() + args.wait_auth
+    if args.wait_auth:
+        print("WAITING_AUTH", args.wait_auth, flush=True)
+    found = None
+    while True:
+        try:
+            found = memory.find_current_auth_blob(
+                max_seconds=30 if not args.wait_auth else min(8, max(1, deadline-time.monotonic())))
+        except RuntimeError as exc:
+            if "expected one Morimens process" in str(exc) and not args.wait_auth:
+                print("GAME_NOT_RUNNING", flush=True)
+                raise SystemExit(2)
+            if not args.wait_auth or "expected one Morimens process" not in str(exc):
+                raise
+        if found or not args.wait_auth or time.monotonic() >= deadline:
+            break
+        time.sleep(1)
+    if found:
+        pid, auth_blob, _ = found
+        print("CURRENT_AUTH_IN_RAM", "pid", pid, flush=True)
+    else:
+        print("NO_CURRENT_AUTH", flush=True)
+        raise SystemExit(2)
     gateway, (target, main) = captured_logins(args.capture, reference, pilot)
     gateway_auth, gateway_login, gateway_auth_session, gateway_login_session = gateway
     main_auth, main_login, main_auth_session, main_login_session = main
-    found = memory.find_current_auth_blob(max_seconds=30)
-    if found:
-        pid, auth_blob, _ = found
-        print("CURRENT_AUTH_IN_RAM", "pid", pid, "target", target, flush=True)
-    else:
-        raise SystemExit("当前游戏进程中未找到登录材料；未使用旧抓包凭据，也未发送请求")
     gw = fresh.connect_and_login("operate-global-game",
         fresh.replace_auth_blob(gateway_auth, auth_blob), gateway_login,
         gateway_auth_session, gateway_login_session)
     if gw is None:
-        raise SystemExit("gateway 登录未通过；未查询历史")
+        raise SystemExit("LOGIN_REJECTED gateway")
     gw[0].sock.close()
     session = fresh.connect_and_login(target,
         fresh.replace_auth_blob(main_auth, auth_blob), main_login,
         main_auth_session, main_login_session)
     if session is None:
-        raise SystemExit("main 登录未通过；本次未查询历史")
+        raise SystemExit("LOGIN_REJECTED main")
     conn, compressor, pending = session
     next_session = max(main_auth_session, main_login_session) + 1
     request_count = 0

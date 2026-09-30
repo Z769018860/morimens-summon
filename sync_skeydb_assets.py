@@ -18,6 +18,13 @@ LABELS = ROOT / "resources" / "labels.zh-CN.json"
 ASSETS = ROOT / "web" / "assets"
 CATALOG = ROOT / "data" / "local" / "catalog.json"
 SOURCE = "https://github.com/dansa/SKeyDB"
+BANNER_TITLES = {
+    "Triune Verdant": "三相衡生",
+    "Sylvan Omen": "因果苗圃",
+    "Sin-Bound Glory / Sullied White": "罪缚的荣光 / 秽染雏白",
+}
+BANNER_KIND = {"awaken": "限时唤醒", "rerun": "复刻唤醒", "combo": "组合唤醒",
+               "premium": "精选唤醒", "selector": "自选唤醒", "daily": "每日唤醒"}
 
 
 def load(path: Path):
@@ -94,6 +101,10 @@ def main() -> None:
         banner["featuredZh"] = [english_to_zh.get((x.get("name") if isinstance(x, dict) else x).casefold(),
                                                    x.get("name") if isinstance(x, dict) else x)
                                 for x in featured]
+        title = banner["title"].replace(" rerun", "")
+        banner["titleZh"] = BANNER_TITLES.get(title) or (
+            f"{BANNER_KIND.get(banner.get('type'), '活动唤醒')} · {' / '.join(banner['featuredZh'])}"
+            if banner["featuredZh"] else BANNER_KIND.get(banner.get("type"), "活动唤醒"))
     revision = subprocess.check_output(["git", "-C", str(UPSTREAM), "rev-parse", "HEAD"], text=True).strip()
     CATALOG.parent.mkdir(parents=True, exist_ok=True)
     CATALOG.write_text(json.dumps({"source": SOURCE, "revision": revision,

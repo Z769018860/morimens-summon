@@ -27,6 +27,7 @@
         <div class="section-head"><div><span class="kicker">OVERVIEW</span><h2>你的抽卡概况</h2></div><span class="subtle">基于已采集记录 · 各类别独立统计</span></div>
         <div class="stat-grid" id="stats"></div>
         <div class="dashboard-grid"><section class="panel"><div class="panel-head"><div><span class="kicker">POOLS</span><h3>卡池分布</h3></div><button class="text-button" data-target="history">查看全部 →</button></div><div id="pool-bars"></div></section><section class="panel"><div class="panel-head"><div><span class="kicker">SSR TIMELINE</span><h3>最近的闪光</h3></div><span class="subtle">抽数按同类别计算</span></div><div id="recent-ssr"></div></section></div>
+        <div class="dashboard-grid"><section class="panel"><div class="panel-head"><div><span class="kicker">BY CATEGORY</span><h3>各类出货表现</h3></div><span class="subtle">已保存记录</span></div><div id="category-analysis"></div></section><section class="panel"><div class="panel-head"><div><span class="kicker">SSR INTERVALS</span><h3>出货抽数分布</h3></div><span class="subtle">仅连续记录</span></div><div id="interval-analysis"></div></section></div>
       </section>
       <section class="view" id="history">
         <div class="page-title"><div><span class="kicker">SSR TIMELINE</span><h1>卡池出货时间线</h1><p>每条横杆代表两次 SSR 之间的抽数。SR 及其他记录只计入抽数，不在列表中展示。</p></div><div class="export-row"><button class="ghost" id="export-json">导出 JSON</button><button class="ghost" id="export-csv">导出 CSV</button></div></div>
@@ -46,7 +47,7 @@
       <footer>银钥档案 · 本地抽卡分析工具 <span>·</span> 游戏素材归原权利人所有 <span>·</span> 非官方项目</footer>
     </main>
   </div>
-  <div class="modal-overlay" id="update-modal" hidden><div class="update-modal" role="dialog" aria-modal="true" aria-labelledby="update-title"><button class="modal-close" id="close-update" aria-label="关闭">×</button><span class="kicker">DATA SYNC</span><h2 id="update-title">自动更新抽卡记录</h2><p class="modal-intro">请先启动并登录游戏，保持游戏正常运行。工具会进行一次独立的只读查询流程，补取缺失页面；每页立即保存。连接中断后仍可保留进度。</p><div class="progress-track"><div id="progress-fill"></div></div><div class="progress-line"><b id="progress-text">准备就绪</b><span id="progress-number">—</span></div><div class="progress-coverage" id="progress-coverage"></div><div class="progress-log" id="progress-log"></div><div class="modal-actions"><button class="ghost" id="cancel-update">关闭</button><button class="primary" id="start-update">开始更新</button></div></div></div>
+  <div class="modal-overlay" id="update-modal" hidden><div class="update-modal" role="dialog" aria-modal="true" aria-labelledby="update-title"><button class="modal-close" id="close-update" aria-label="关闭">×</button><span class="kicker">DATA SYNC</span><h2 id="update-title">自动更新抽卡记录</h2><p class="modal-intro">工具会查询当前游戏会话并补取缺失页面，每页立即保存。如果本次登录材料已从内存释放，可先点击“等待重新登录”，再重启游戏一次；工具检测到新会话后会自动查询。</p><div class="progress-track"><div id="progress-fill"></div></div><div class="progress-line"><b id="progress-text">准备就绪</b><span id="progress-number">—</span></div><div class="progress-coverage" id="progress-coverage"></div><div class="progress-log" id="progress-log"></div><div class="modal-actions"><button class="ghost" id="cancel-update">关闭</button><button class="ghost" id="wait-update">等待重新登录</button><button class="primary" id="start-update">开始更新</button></div></div></div>
   <script src="/app.js" defer></script>
 </body>
 </html>
