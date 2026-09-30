@@ -53,14 +53,16 @@ def main() -> None:
     character_names = names["characters"]
     wheel_names = names["wheels"]
     characters = []
+    retained = {"characters": set(), "wheels": set()}
     for item in awakeners:
         art = UPSTREAM / "src" / "assets" / "awk-portraits" / f"{slug(item['name'])}.webp"
         icon = None
-        if art.is_file():
+        if item.get("rarity") == "SSR" and art.is_file():
             destination = ASSETS / "characters" / f"{item['id']}.webp"
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(art, destination)
             icon = f"/assets/characters/{destination.name}"
+            retained["characters"].add(destination.name)
         characters.append({"id": item["id"], "name": character_names.get(item["id"], item["name"]),
                            "englishName": item["name"], "rarity": item.get("rarity"), "icon": icon})
     wheel_items = []
@@ -70,13 +72,21 @@ def main() -> None:
         art_name = asset.get("assetId")
         art = UPSTREAM / "src" / "assets" / "wheels" / f"{art_name}.webp" if art_name else None
         icon = None
-        if art and art.is_file():
+        if item.get("rarity") == "SSR" and art and art.is_file():
             destination = ASSETS / "wheels" / f"{item['id']}.webp"
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(art, destination)
             icon = f"/assets/wheels/{destination.name}"
+            retained["wheels"].add(destination.name)
         wheel_items.append({"id": item["id"], "name": wheel_names.get(item["id"], item["name"]),
                             "englishName": item["name"], "rarity": item.get("rarity"), "icon": icon})
+    for category, keep in retained.items():
+        folder = (ASSETS / category).resolve()
+        if not folder.is_relative_to(ASSETS.resolve()):
+            raise RuntimeError("图片缓存路径不安全")
+        for cached in folder.glob("*.webp"):
+            if cached.name not in keep:
+                cached.unlink()
     banners = load(UPSTREAM / "src" / "data" / "timeline" / "banners.json")
     english_to_zh = {x["englishName"].casefold(): x["name"] for x in characters + wheel_items}
     for banner in banners:

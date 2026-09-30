@@ -3,8 +3,7 @@ const DEFAULT_RULES = {base:3.02,combined:5.02,pity:30,up:50};
 const $ = id => document.getElementById(id);
 const html = value => String(value ?? '').replace(/[&<>"']/g, x => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x]));
 let data = {records:[],coverage:[],catalog:{characters:[],wheels:[],banners:[]}};
-let catalog = new Map(), selectedType='all', visibleCount=40, search='', ssrOnly=false;
-let annotations = JSON.parse(localStorage.getItem('morimens-banner-annotations') || '{}');
+let catalog = new Map(), selectedType='all', visibleCount=40, search='', updateTimer=null;
 let rules = {...DEFAULT_RULES,...JSON.parse(localStorage.getItem('morimens-rules') || '{}')};
 
 function nameFor(type){return TYPE_NAMES[type] || `类别 ${type}`}
@@ -17,15 +16,20 @@ function isSSR(r){return metaOf(r).rarity==='SSR'}
 function categoryRows(type){return data.records.filter(r=>Number(r.history_type)===Number(type)).sort((a,b)=>b.ordinal-a.ordinal)}
 function coverageOf(type){return data.coverage.find(c=>Number(c.history_type)===Number(type))}
 function activeBanners(r){const t=r.timestamp*1000,kind=metaOf(r).kind;return data.catalog.banners.filter(b=>bannerDate(b.startDate).getTime()<=t && t<bannerDate(b.endDate).getTime() && (b.featuredZh||[]).some(name=>catalog.get(name)?.kind===kind))}
-function selectedBanner(r){return data.catalog.banners.find(b=>b.id===annotations[keyOf(r)])}
+function resolvedBanner(r){
+  // The History RPC has no per-pull pool ID. Only a single matching event
+  // in the confirmed history family permits a definite UP/off-rate verdict.
+  if(![1,2].includes(Number(r.history_type)))return null;
+  const candidates=activeBanners(r);
+  return candidates.length===1?candidates[0]:null;
+}
 function upState(r){
   if(!isSSR(r))return null;
-  const chosen=selectedBanner(r);
-  if(chosen)return (chosen.featuredZh||[]).includes(r.name)?'up':'off';
-  if(activeBanners(r).some(b=>(b.featuredZh||[]).includes(r.name)))return 'possible';
+  const banner=resolvedBanner(r);
+  if(banner)return (banner.featuredZh||[]).includes(r.name)?'up':'off';
   return 'unknown';
 }
-function upLabel(state){return ({up:'命中 UP',off:'歪',possible:'可能 UP',unknown:'UP 待确认'})[state]||''}
+function upLabel(state){return ({up:'命中 UP',off:'歪',unknown:'无法确认'})[state]||''}
 function ssrIntervals(type){
   const rows=categoryRows(type).sort((a,b)=>a.ordinal-b.ordinal),known=new Set(rows.map(r=>r.ordinal));
   let prev=null;const result=new Map();
@@ -52,21 +56,25 @@ function renderOverview(){
   const hero=data.catalog.characters.find(x=>x.name==='蚀灭·萝坦')||data.catalog.characters[0];$('hero-portrait').src=hero?.icon||'';
 }
 function renderTabs(){const tabs=[['all','全部'],...data.coverage.map(c=>[String(c.history_type),nameFor(c.history_type)])];$('pool-tabs').innerHTML=tabs.map(([id,label])=>`<button data-type="${html(id)}" class="${selectedType===id?'active':''}">${html(label)}</button>`).join('')}
-function bannerSelector(r){if(!isSSR(r))return '';const candidates=activeBanners(r);if(!candidates.length)return '<span class="pill muted">无日程资料</span>';return `<select data-key="${html(keyOf(r))}" aria-label="指定抽卡所属限时卡池"><option value="">指定当期卡池…</option>${candidates.map(b=>`<option value="${html(b.id)}" ${annotations[keyOf(r)]===b.id?'selected':''}>${html(b.title)} · ${html((b.featuredZh||[]).join(' / '))}</option>`).join('')}</select>`}
 function renderHistory(){
   renderTabs();const intervals=allIntervals();let rows=data.records.filter(r=>selectedType==='all'||String(r.history_type)===selectedType);
-  if(ssrOnly)rows=rows.filter(isSSR);if(search)rows=rows.filter(r=>r.name.toLowerCase().includes(search)||String(r.item_tid).includes(search));
+  const counted=rows.length;
+  rows=rows.filter(isSSR);if(search)rows=rows.filter(r=>r.name.toLowerCase().includes(search)||String(r.item_tid).includes(search));
   rows.sort((a,b)=>b.timestamp-a.timestamp||b.ordinal-a.ordinal);
-  const selected=selectedType==='all'?null:coverageOf(selectedType),ssrCount=rows.filter(isSSR).length;
-  $('history-summary').innerHTML=`<span>显示 <b>${rows.length}</b> 条</span><span>SSR <b>${ssrCount}</b> 条</span>${selected?`<span>覆盖 <b>${selected.known}/${selected.reported_total}</b> · ${selected.complete?'已完整':'仍有缺页'}</span>`:''}`;
-  $('records').innerHTML=rows.slice(0,visibleCount).map(r=>{const meta=metaOf(r),n=intervals.get(keyOf(r)),state=upState(r);return `<article class="record ${isSSR(r)?'ssr':''}">${portrait(r)}<div class="record-name"><b>${html(r.name)}</b><small>${html(nameFor(r.history_type))} · ${html(meta.rarity)} · TID ${r.item_tid}</small></div><div class="record-meta">${isSSR(r)?`本次 SSR <b>${n==null?'抽数待补全':`${n} 抽`}</b>`:`历史序号 #${r.ordinal+1}`}</div>${state?`<span class="pill ${state==='up'?'up':state==='off'?'off':'muted'}">${html(upLabel(state))}</span>`:''}${bannerSelector(r)}<span class="record-date">${dateOf(r.timestamp)}</span></article>`}).join('')||'<div class="empty">没有符合条件的记录</div>';
+  const selected=selectedType==='all'?null:coverageOf(selectedType),off=rows.filter(r=>upState(r)==='off').length;
+  $('history-summary').innerHTML=`<span>已计入 <b>${counted}</b> 抽</span><span>SSR <b>${rows.length}</b> 次</span><span>确认歪 <b>${off}</b> 次</span>${selected?`<span>覆盖 <b>${selected.known}/${selected.reported_total}</b> · ${selected.complete?'已完整':'仍有缺页'}</span>`:''}<span>SR 不单独展示</span>`;
+  const shown=rows.slice(0,visibleCount);
+  const firstType=selectedType==='all'?null:Number(selectedType);
+  let latestProgress='';
+  if(firstType!==null){const all=categoryRows(firstType),last=all.find(isSSR),top=all[0];if(last&&top){const known=new Set(all.map(x=>x.ordinal));let valid=true;for(let n=last.ordinal+1;n<=top.ordinal;n++)if(!known.has(n))valid=false;if(valid)latestProgress=`<div class="pity-now"><div class="pity-icon">✦</div><div><b>距离上次 SSR 已抽 ${top.ordinal-last.ordinal} 抽</b><small>${html(nameFor(firstType))} · 当前进度仅基于已保存记录</small></div><span>至今</span></div>`}}
+  $('records').innerHTML=latestProgress+shown.map(r=>{const n=intervals.get(keyOf(r)),state=upState(r),banner=resolvedBanner(r),width=n==null?28:Math.min(100,Math.max(12,n/Math.max(1,Number(rules.pity))*100));return `<article class="ssr-row">${portrait(r)}<div class="ssr-row-body"><div class="ssr-row-top"><div><b>${html(r.name)}</b><small>${html(nameFor(r.history_type))} · ${dateOf(r.timestamp)}${banner?` · ${html(banner.title)}`:''}</small></div><span class="pill ${state==='up'?'up':state==='off'?'off':'muted'}">${html(upLabel(state))}</span></div><div class="draw-track"><div class="draw-fill ${n==null?'unknown':n<=Number(rules.pity)*.5?'lucky':n>=Number(rules.pity)*.85?'late':'normal'}" style="width:${width}%"><strong>${n==null?'抽数待补全':`${n} 抽`}</strong></div></div></div></article>`}).join('')||'<div class="empty">没有符合条件的 SSR 记录</div>';
   $('load-more').hidden=visibleCount>=rows.length;
 }
 function renderBanners(){const now=Date.now();$('banner-grid').innerHTML=[...data.catalog.banners].sort((a,b)=>bannerDate(b.startDate)-bannerDate(a.startDate)).map(b=>{const start=bannerDate(b.startDate).getTime(),end=bannerDate(b.endDate).getTime(),live=start<=now&&now<end,days=Math.round((end-start)/86400000*10)/10;return `<article class="banner-card ${live?'live':''}"><div class="banner-top"><span class="kicker">${html(b.type?.toUpperCase()||'BANNER')}</span><span class="pill ${live?'up':'muted'}">${live?'进行中':now<start?'即将开启':'已结束'}</span></div><h3>${html(b.title)}</h3><p>UP：${html((b.featuredZh||[]).join(' / ')||'自选或未列明')}</p><div class="dates">${html(niceDate(b.startDate))} → ${html(niceDate(b.endDate))}</div><div class="duration">持续 ${days} 天 · 服务器时间 UTC+8</div></article>`}).join('')}
 function renderRules(){for(const [id,key] of [['base-rate','base'],['combined-rate','combined'],['hard-pity','pity'],['up-rate','up']])$(id).value=rules[key]}
-function showView(name){for(const v of document.querySelectorAll('.view'))v.classList.toggle('active',v.id===name);for(const n of document.querySelectorAll('.nav'))n.classList.toggle('active',n.dataset.view===name);$('view-name').textContent=({overview:'抽卡总览',history:'抽卡记录',banners:'限时卡池',rules:'概率与规则'})[name];if(name==='history')renderHistory();if(name==='banners')renderBanners();if(name==='rules')renderRules();window.scrollTo({top:0,behavior:'smooth'})}
+function showView(name){for(const v of document.querySelectorAll('.view'))v.classList.toggle('active',v.id===name);for(const n of document.querySelectorAll('.nav'))n.classList.toggle('active',n.dataset.view===name);$('view-name').textContent=({overview:'抽卡总览',history:'SSR 时间线',banners:'限时卡池',rules:'概率与规则'})[name];if(name==='history')renderHistory();if(name==='banners')renderBanners();if(name==='rules')renderRules();window.scrollTo({top:0,behavior:'smooth'})}
 function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
-function structured(){const intervals=allIntervals();return {schemaVersion:1,generatedAt:new Date().toISOString(),source:'Summon.QuerySummonHistory',timeZone:'Asia/Shanghai',coverage:data.coverage,rules:{...rules,verified:false},records:data.records.map(r=>({...r,rarity:metaOf(r).rarity,kind:metaOf(r).kind,pullsSinceSSR:intervals.get(keyOf(r))??null,bannerId:annotations[keyOf(r)]||null,upStatus:upState(r)}))}}
+function structured(){const intervals=allIntervals();return {schemaVersion:2,generatedAt:new Date().toISOString(),source:'Summon.QuerySummonHistory',timeZone:'Asia/Shanghai',coverage:data.coverage,rules:{...rules,verified:false},records:data.records.map(r=>({...r,rarity:metaOf(r).rarity,kind:metaOf(r).kind,pullsSinceSSR:isSSR(r)?intervals.get(keyOf(r))??null:null,bannerId:resolvedBanner(r)?.id||null,upStatus:upState(r)}))}}
 function exportJSON(){download(new Blob([JSON.stringify(structured(),null,2)],{type:'application/json;charset=utf-8'}),'morimens-summon-history.json')}
 function exportCSV(){const s=structured(),fields=['history_type','ordinal','timestamp','item_tid','name','rarity','kind','pullsSinceSSR','bannerId','upStatus'];const quote=v=>'"'+String(v??'').replaceAll('"','""')+'"';download(new Blob(['\ufeff'+[fields.join(','),...s.records.map(r=>fields.map(f=>quote(r[f])).join(','))].join('\r\n')],{type:'text/csv;charset=utf-8'}),'morimens-summon-history.csv')}
 async function shareImage(){
@@ -84,8 +92,26 @@ async function shareImage(){
   canvas.toBlob(blob=>blob&&download(blob,'morimens-summon-share.png'),'image/png');
 }
 async function refresh(){try{const response=await fetch('/api/data',{cache:'no-store'});if(!response.ok)throw new Error('数据读取失败');data=await response.json();catalog=new Map();for(const [kind,items] of [['character',data.catalog.characters],['wheel',data.catalog.wheels]])for(const item of items||[])catalog.set(item.name,{...item,kind});$('sync-time').textContent=`${data.records.length} 条已保存 · ${new Date().toLocaleTimeString('zh-CN')}`;renderOverview();renderHistory();renderBanners();renderRules()}catch(error){$('coverage-notice').textContent=`读取失败：${error.message}`}}
+let updateWasRunning=false;
+async function pollUpdate(){
+  try{const response=await fetch('/api/update-status',{cache:'no-store'}),status=await response.json();
+    const total=status.coverage.reduce((n,c)=>n+c.reported_total,0),known=status.coverage.reduce((n,c)=>n+c.known,0),percent=total?Math.round(known/total*100):0;
+    $('progress-fill').style.width=`${percent}%`;$('progress-text').textContent=status.message;$('progress-number').textContent=`${known} / ${total} 条 · ${percent}%`;
+    $('progress-coverage').textContent=status.coverage.map(c=>`${nameFor(c.history_type)} ${c.known}/${c.reported_total}`).join('　·　');
+    $('progress-log').replaceChildren(...status.log.slice(-5).map(line=>{const item=document.createElement('div');item.textContent=line;return item}));
+    $('start-update').disabled=status.running;$('start-update').textContent=status.running?'正在更新…':status.result?'再次尝试更新':'开始更新';
+    if(updateWasRunning&&!status.running)await refresh();updateWasRunning=status.running;
+    if(status.running&&!updateTimer)updateTimer=setInterval(pollUpdate,1200);
+    if(!status.running&&updateTimer){clearInterval(updateTimer);updateTimer=null}
+  }catch(error){$('progress-text').textContent=`读取进度失败：${error.message}`}
+}
+async function openUpdate(){$('update-modal').hidden=false;await pollUpdate()}
+async function startUpdate(){
+  $('start-update').disabled=true;$('progress-text').textContent='正在启动采集…';
+  try{const response=await fetch('/api/update',{method:'POST',headers:{'X-Morimens-Action':'update'}});const result=await response.json();if(!response.ok)throw new Error(result.error||'更新启动失败');updateWasRunning=true;await pollUpdate()}
+  catch(error){$('progress-text').textContent=error.message;$('start-update').disabled=false}
+}
 document.addEventListener('click',e=>{const nav=e.target.closest('[data-view]');if(nav)showView(nav.dataset.view);const target=e.target.closest('[data-target]');if(target)showView(target.dataset.target);const tab=e.target.closest('[data-type]');if(tab){selectedType=tab.dataset.type;visibleCount=40;renderHistory()}});
-document.addEventListener('change',e=>{if(e.target.matches('select[data-key]')){if(e.target.value)annotations[e.target.dataset.key]=e.target.value;else delete annotations[e.target.dataset.key];localStorage.setItem('morimens-banner-annotations',JSON.stringify(annotations));renderHistory();renderOverview()}});
-$('refresh').onclick=refresh;$('go-history').onclick=()=>showView('history');$('share').onclick=shareImage;$('export-json').onclick=exportJSON;$('export-csv').onclick=exportCSV;$('load-more').onclick=()=>{visibleCount+=50;renderHistory()};$('search').oninput=e=>{search=e.target.value.trim().toLowerCase();visibleCount=40;renderHistory()};$('ssr-only').onchange=e=>{ssrOnly=e.target.checked;visibleCount=40;renderHistory()};
+$('refresh').onclick=openUpdate;$('start-update').onclick=startUpdate;$('close-update').onclick=()=>{$('update-modal').hidden=true};$('cancel-update').onclick=()=>{$('update-modal').hidden=true};$('go-history').onclick=()=>showView('history');$('share').onclick=shareImage;$('export-json').onclick=exportJSON;$('export-csv').onclick=exportCSV;$('load-more').onclick=()=>{visibleCount+=50;renderHistory()};$('search').oninput=e=>{search=e.target.value.trim().toLowerCase();visibleCount=40;renderHistory()};
 $('save-rules').onclick=()=>{const next={base:Number($('base-rate').value),combined:Number($('combined-rate').value),pity:Number($('hard-pity').value),up:Number($('up-rate').value)};if(!(next.base>0&&next.base<=100&&next.combined>0&&next.combined<=100&&Number.isInteger(next.pity)&&next.pity>0&&next.up>=0&&next.up<=100)){alert('请填写有效的概率与保底抽数');return}rules=next;localStorage.setItem('morimens-rules',JSON.stringify(rules));renderOverview();alert('参考规则已保存在本机浏览器')};
 refresh();

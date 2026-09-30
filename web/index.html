@@ -20,7 +20,7 @@
       <div class="rail-bottom"><span class="status-dot"></span> 本机数据 · 不上传账号记录<br><small id="sync-time">读取中…</small></div>
     </aside>
     <main>
-      <header class="topbar"><div class="crumb">资料室 <span>/</span> <b id="view-name">抽卡总览</b></div><div class="top-actions"><button class="ghost" id="refresh">↻ 更新数据</button><button class="primary" id="share">↗ 生成分享图</button></div></header>
+      <header class="topbar"><div class="crumb">资料室 <span>/</span> <b id="view-name">抽卡总览</b></div><div class="top-actions"><button class="ghost" id="refresh">↻ 自动更新</button><button class="primary" id="share">↗ 生成分享图</button></div></header>
       <section class="view active" id="overview">
         <div class="hero"><div class="hero-copy"><div class="eyebrow">PERSONAL SUMMON ARCHIVE <span class="line"></span> 2026</div><h1>每一次唤醒，<br><em>都有迹可循。</em></h1><p>读取真实通讯历史，按卡池保存。完整度、SSR 间隔与 UP 判断都标明依据。</p><div class="hero-actions"><button class="primary" id="go-history">查看抽卡记录 <span>→</span></button><span>数据仅存储在本机</span></div></div><div class="hero-art"><div class="halo"></div><img id="hero-portrait" alt="角色立绘"></div></div>
         <div class="notice" id="coverage-notice"></div>
@@ -29,8 +29,8 @@
         <div class="dashboard-grid"><section class="panel"><div class="panel-head"><div><span class="kicker">POOLS</span><h3>卡池分布</h3></div><button class="text-button" data-target="history">查看全部 →</button></div><div id="pool-bars"></div></section><section class="panel"><div class="panel-head"><div><span class="kicker">SSR TIMELINE</span><h3>最近的闪光</h3></div><span class="subtle">抽数按同类别计算</span></div><div id="recent-ssr"></div></section></div>
       </section>
       <section class="view" id="history">
-        <div class="page-title"><div><span class="kicker">SUMMON LOG</span><h1>抽卡记录</h1><p>SSR 抽数从同类历史的上一个 SSR 起算；缺页时不推算。</p></div><div class="export-row"><button class="ghost" id="export-json">导出 JSON</button><button class="ghost" id="export-csv">导出 CSV</button></div></div>
-        <div class="filter-row"><div class="tabs" id="pool-tabs"></div><label class="search"><span>⌕</span><input id="search" placeholder="搜索角色、命轮或编号"></label><label class="check"><input type="checkbox" id="ssr-only"> 只看 SSR</label></div>
+        <div class="page-title"><div><span class="kicker">SSR TIMELINE</span><h1>卡池出货时间线</h1><p>每条横杆代表两次 SSR 之间的抽数。SR 及其他记录只计入抽数，不在列表中展示。</p></div><div class="export-row"><button class="ghost" id="export-json">导出 JSON</button><button class="ghost" id="export-csv">导出 CSV</button></div></div>
+        <div class="filter-row"><div class="tabs" id="pool-tabs"></div><label class="search"><span>⌕</span><input id="search" placeholder="搜索 SSR 或编号"></label></div>
         <div class="history-summary" id="history-summary"></div>
         <div class="record-list" id="records"></div><button class="more" id="load-more">加载更多记录 ↓</button>
       </section>
@@ -41,11 +41,12 @@
       </section>
       <section class="view" id="rules">
         <div class="page-title"><div><span class="kicker">PROBABILITY & TRUST</span><h1>概率与保底</h1><p>不同服务器与卡池可能使用不同规则。当前数值是可修改的参考假设，不会伪装成已核实的官方公示。</p></div></div>
-        <div class="rules-grid"><section class="panel rule-panel"><span class="kicker">REFERENCE PROFILE</span><h3>用于欧非估计的参考值</h3><div class="field-grid"><label>SSR 单抽基础概率 <span>%</span><input id="base-rate" type="number" min="0.01" max="100" step="0.01"></label><label>SSR 综合概率 <span>%</span><input id="combined-rate" type="number" min="0.01" max="100" step="0.01"></label><label>SSR 硬保底 <span>抽</span><input id="hard-pity" type="number" min="1" max="500" step="1"></label><label>当期 UP 概率 <span>%</span><input id="up-rate" type="number" min="0" max="100" step="1"></label></div><button class="primary" id="save-rules">保存本机设置</button><p class="source-note">默认示例采用社区常见的 3.02% / 30 抽 / 50% 描述；请按游戏内当前卡池的“概率详情”核对后调整。综合概率未用于欧非模型；模型仅用基础概率和硬保底。</p></section><section class="panel"><span class="kicker">HOW IT WORKS</span><h3>计算口径</h3><div class="explain"><b>SSR 抽数</b><p>同类别内两个 SSR 的历史序号之差；没有连续覆盖时显示“待补全”。</p><b>UP 与歪</b><p>历史接口没有卡池配置 ID。请在 SSR 记录中指定当期卡池；命中活动目标标记 UP，否则标记“歪”。未指定时只显示候选，不擅自判定。</p><b>欧非</b><p>以可计算的 SSR 间隔与参考概率模型的期望抽数比较。少于 5 次有效 SSR 间隔时显示“样本不足”。这是娱乐性描述，不能证明未来结果。</p></div></section></div>
+        <div class="rules-grid"><section class="panel rule-panel"><span class="kicker">REFERENCE PROFILE</span><h3>用于欧非估计的参考值</h3><div class="field-grid"><label>SSR 单抽基础概率 <span>%</span><input id="base-rate" type="number" min="0.01" max="100" step="0.01"></label><label>SSR 综合概率 <span>%</span><input id="combined-rate" type="number" min="0.01" max="100" step="0.01"></label><label>SSR 硬保底 <span>抽</span><input id="hard-pity" type="number" min="1" max="500" step="1"></label><label>当期 UP 概率 <span>%</span><input id="up-rate" type="number" min="0" max="100" step="1"></label></div><button class="primary" id="save-rules">保存本机设置</button><p class="source-note">默认示例采用社区常见的 3.02% / 30 抽 / 50% 描述；请按游戏内当前卡池的“概率详情”核对后调整。综合概率未用于欧非模型；模型仅用基础概率和硬保底。</p></section><section class="panel"><span class="kicker">HOW IT WORKS</span><h3>计算口径</h3><div class="explain"><b>SSR 抽数</b><p>同类别内两个 SSR 的历史序号之差；没有连续覆盖时显示“待补全”。</p><b>UP 与歪</b><p>工具自动比对历史类别、抽卡时间及同期卡池。只有唯一可匹配的卡池时才标记命中 UP 或“歪”；并行卡池及未识别的类别显示“无法确认”。</p><b>欧非</b><p>以可计算的 SSR 间隔与参考概率模型的期望抽数比较。少于 5 次有效 SSR 间隔时显示“样本不足”。这是娱乐性描述，不能证明未来结果。</p></div></section></div>
       </section>
       <footer>银钥档案 · 本地抽卡分析工具 <span>·</span> 游戏素材归原权利人所有 <span>·</span> 非官方项目</footer>
     </main>
   </div>
+  <div class="modal-overlay" id="update-modal" hidden><div class="update-modal" role="dialog" aria-modal="true" aria-labelledby="update-title"><button class="modal-close" id="close-update" aria-label="关闭">×</button><span class="kicker">DATA SYNC</span><h2 id="update-title">自动更新抽卡记录</h2><p class="modal-intro">请先启动并登录游戏，保持游戏正常运行。工具会进行一次独立的只读查询流程，补取缺失页面；每页立即保存。连接中断后仍可保留进度。</p><div class="progress-track"><div id="progress-fill"></div></div><div class="progress-line"><b id="progress-text">准备就绪</b><span id="progress-number">—</span></div><div class="progress-coverage" id="progress-coverage"></div><div class="progress-log" id="progress-log"></div><div class="modal-actions"><button class="ghost" id="cancel-update">关闭</button><button class="primary" id="start-update">开始更新</button></div></div></div>
   <script src="/app.js" defer></script>
 </body>
 </html>

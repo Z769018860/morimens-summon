@@ -1,0 +1,38 @@
+import io
+import unittest
+from unittest.mock import patch
+
+import app
+
+
+class FakeProcess:
+    def __init__(self, lines, code):
+        self.stdout = io.StringIO(lines)
+        self.code = code
+
+    def wait(self):
+        return self.code
+
+
+class UpdateTests(unittest.TestCase):
+    def test_single_query_process_reports_saved_partial_progress(self):
+        fake = FakeProcess("CURRENT_AUTH_IN_RAM pid 1 target game\n"
+                           "HISTORY_PAGE 10 25 5 of 505\n"
+                           "CONNECTION_PAUSED RuntimeError after 1 pages\n", 0)
+        with patch.object(app.subprocess, "Popen", return_value=fake) as popen:
+            app.UPDATE.update(running=True, phase="prepare", message="", log=[], result=None)
+            app.update_worker()
+        self.assertEqual(popen.call_count, 1)
+        self.assertEqual(app.UPDATE["result"], "partial")
+        self.assertFalse(app.UPDATE["running"])
+        self.assertTrue(any("类别 10 第 25 页" in line for line in app.UPDATE["log"]))
+
+    def test_api_payload_excludes_login_and_player_id(self):
+        data = app.payload()
+        self.assertTrue(data["records"])
+        self.assertEqual(set(data["records"][0]),
+                         {"history_type", "ordinal", "item_tid", "name", "timestamp"})
+
+
+if __name__ == "__main__":
+    unittest.main()
