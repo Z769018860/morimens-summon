@@ -21,6 +21,7 @@ import msgpack
 import sympy
 
 import decode_summon_capture as decode
+import history_store as store
 
 
 ROOT = Path(__file__).resolve().parent
@@ -104,8 +105,12 @@ def decode_history(blobs, expected_type: int, page: int):
     if len(objects) != 1 or not isinstance(objects[0], list) or not objects[0]:
         raise ValueError(f"History {expected_type}/{page} 响应结构未知")
     body = objects[0][0]
-    if not isinstance(body, dict) or not isinstance(body.get("count"), int) or not isinstance(body.get("records"), list):
-        raise ValueError(f"History {expected_type}/{page} 缺少 count/records")
+    if not isinstance(body, dict) or not isinstance(body.get("count"), int):
+        raise ValueError(f"History {expected_type}/{page} 缺少 count")
+    if body["count"] == 0 and "records" not in body:
+        body["records"] = []
+    if not isinstance(body.get("records"), list):
+        raise ValueError(f"History {expected_type}/{page} 缺少 records")
     for record in body["records"]:
         if record.get("type") != expected_type:
             raise ValueError(f"History {expected_type}/{page} 记录类型不一致")
@@ -115,10 +120,28 @@ def decode_history(blobs, expected_type: int, page: int):
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--capture", type=Path, default=ROOT / "data" / "local" / "loopback.pcap")
-    ap.add_argument("--output", type=Path, default=ROOT / "data" / "local" / "full_history_raw.json")
-    ap.add_argument("--max-pages", type=int, default=100)
-    ap.add_argument("--batch-pages", type=int, default=10)
+    ap.add_argument("--db", type=Path, default=ROOT / "data" / "local" / "history.sqlite3")
+    ap.add_argument("--output", type=Path, default=ROOT / "data" / "local" / "history_all.csv")
+    ap.add_argument("--import-raw", type=Path, default=ROOT / "data" / "local" / "full_history_raw.json")
+    ap.add_argument("--import-decoded", type=Path, default=ROOT / "data" / "local" / "loopback_decoded_snapshot.json")
+    ap.add_argument("--local-only", action="store_true", help="只整理已保存数据，不登录或查询游戏")
+    ap.add_argument("--types", type=int, nargs="+", default=[1, 2, 16, 17, 10])
+    ap.add_argument("--max-pages", type=int, default=1000)
+    ap.add_argument("--request-delay", type=float, default=0.05)
     args = ap.parse_args()
+    if args.request_delay < 0 or args.max_pages < 1 or any(t < 0 for t in args.types):
+        ap.error("类别、最大页数和请求间隔必须有效")
+    db = store.connect(args.db)
+    imported = 0
+    if db.execute("SELECT COUNT(*) FROM history_types").fetchone()[0] == 0:
+        imported = store.import_raw_pages(db, args.import_raw)
+        imported += store.import_decoded_capture(db, args.import_decoded)
+    if imported:
+        print("LOCAL_PAGES_LOADED", imported, "records", flush=True)
+    store.export_csv(db, args.output)
+    if args.local_only:
+        print("HISTORY_COVERAGE", json.dumps(store.coverage(db), ensure_ascii=False), flush=True)
+        return
     reference = decode.load_reference()
     pilot = load_research("morimens_direct_facade_pilot")
     fresh = load_research("morimens_fresh_memory_login_pilot")
@@ -131,75 +154,66 @@ def main() -> None:
         pid, auth_blob, _ = found
         print("CURRENT_AUTH_IN_RAM", "pid", pid, "target", target, flush=True)
     else:
-        auth_blob = pilot.packet_fields(main_auth)[1][0]
-        if not memory.inspect_candidate(auth_blob):
-            raise SystemExit("抓包中的登录材料无法验证；未发送任何请求")
-        print("CAPTURED_AUTH_IN_RAM", "target", target, flush=True)
+        raise SystemExit("当前游戏进程中未找到登录材料；未使用旧抓包凭据，也未发送请求")
     gw = fresh.connect_and_login("operate-global-game",
         fresh.replace_auth_blob(gateway_auth, auth_blob), gateway_login,
         gateway_auth_session, gateway_login_session)
     if gw is None:
         raise SystemExit("gateway 登录未通过；未查询历史")
     gw[0].sock.close()
-    results = {}
-    if args.output.exists():
-        saved = json.loads(args.output.read_text(encoding="utf-8"))
-        if saved.get("method") == "Summon.QuerySummonHistory":
-            results = saved.get("pages", {})
-    def save_results():
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(json.dumps({"method": "Summon.QuerySummonHistory", "pages": results},
-                                          ensure_ascii=False, indent=2), encoding="utf-8")
-    def open_main():
-        opened = fresh.connect_and_login(target,
-            fresh.replace_auth_blob(main_auth, auth_blob), main_login,
-            main_auth_session, main_login_session)
-        if opened is None:
-            raise RuntimeError("main 登录未通过")
-        return opened
-    conn, compressor, pending = open_main()
+    session = fresh.connect_and_login(target,
+        fresh.replace_auth_blob(main_auth, auth_blob), main_login,
+        main_auth_session, main_login_session)
+    if session is None:
+        raise SystemExit("main 登录未通过；本次未查询历史")
+    conn, compressor, pending = session
     next_session = max(main_auth_session, main_login_session) + 1
-    batch_count = 0
+    request_count = 0
+    interrupted = False
     try:
-        for history_type in (2, 1):
-            prior = [value["count"] for key, value in results.items() if key.startswith(f"{history_type}/")]
-            total = prior[0] if prior else None
-            page = 1
-            while page <= args.max_pages:
-                key = f"{history_type}/{page}"
-                if key in results:
-                    if page >= math.ceil(total / 5):
-                        break
-                    page += 1
-                    continue
-                if batch_count >= args.batch_pages:
-                    save_results()
-                    print("BATCH_PAUSED", len(results), "pages saved; resume in a later session", flush=True)
-                    return
+        for history_type in dict.fromkeys(args.types):
+            # Always refresh page one. Count and oldest-based ordinals identify
+            # new rows; identical timestamps are checked against row contents.
+            pages = [1]
+            category_count = None
+            while pages:
+                page = pages.pop(0)
+                if page > args.max_pages:
+                    raise ValueError(f"类别 {history_type} 超过 --max-pages")
                 rpc = pilot.build_generic_app(next_session, "Summon.QuerySummonHistory", [history_type, page])
                 fresh.send_app(conn, compressor, rpc)
-                blobs = recv_for_session(conn, next_session, pending, pilot)
-                body = decode_history(blobs, history_type, page)
-                if total is None:
-                    total = body["count"]
-                elif total != body["count"]:
-                    raise ValueError(f"History 类别 {history_type} 的 count 在翻页中改变")
-                results[key] = {"count": total, "records": body["records"]}
-                save_results()
-                print("HISTORY_PAGE", history_type, page, len(body["records"]), "of", total, flush=True)
-                batch_count += 1
-                if page >= math.ceil(total / 5):
+                try:
+                    blobs = recv_for_session(conn, next_session, pending, pilot)
+                except (OSError, TimeoutError, RuntimeError) as exc:
+                    print("CONNECTION_PAUSED", type(exc).__name__, "after", request_count,
+                          "pages; saved data remains available", flush=True)
+                    interrupted = True
                     break
-                page += 1
+                body = decode_history(blobs, history_type, page)
+                if category_count is None:
+                    category_count = body["count"]
+                elif body["count"] != category_count:
+                    raise ValueError(f"类别 {history_type} 查询期间总数变化，请稍后重新同步")
+                prior_stamp = store.newest_timestamp(db, history_type) if page == 1 else None
+                store.ingest_page(db, history_type, page, body)
+                store.export_csv(db, args.output)
+                print("HISTORY_PAGE", history_type, page, len(body["records"]), "of", body["count"], flush=True)
+                if page == 1:
+                    if prior_stamp is not None and body["records"]:
+                        reached_old = body["records"][-1]["timestamp"] <= prior_stamp
+                        print("INCREMENTAL_BOUNDARY", history_type, "reached" if reached_old else "not_yet", flush=True)
+                    pages = [p for p in store.missing_pages(db, history_type, body["count"])
+                             if p != 1]
+                request_count += 1
                 next_session += 1
-                time.sleep(0.4)
-            next_session += 1
-            if page >= args.max_pages and total and page < math.ceil(total / 5):
-                raise RuntimeError("达到 max-pages，历史尚未取完")
+                if pages and args.request_delay:
+                    time.sleep(args.request_delay)
+            if interrupted:
+                break
     finally:
         conn.sock.close()
-    save_results()
-    print("FULL_HISTORY_READY", len(results), "pages", sum(len(x["records"]) for x in results.values()), "records")
+        store.export_csv(db, args.output)
+    print("HISTORY_COVERAGE", json.dumps(store.coverage(db), ensure_ascii=False), flush=True)
 
 
 if __name__ == "__main__":
