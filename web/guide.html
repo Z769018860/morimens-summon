@@ -6,17 +6,17 @@
   <meta name="theme-color" content="#101523">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27%230e1621%27/%3E%3Ctext x=%2716%27 y=%2723%27 font-size=%2720%27 text-anchor=%27middle%27 fill=%27%23e2cf9d%27%3E%E2%9C%A6%3C/text%3E%3C/svg%3E">
   <title>使用教程 · 忘忘看报</title>
-  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body class="site-guide">
   <div class="site-shell">
     <header class="site-top">
       <div class="site-brand"><span class="brand-mark">✦</span><div><strong>忘忘看报</strong><small>忘却前夜 · 抽卡分析</small></div></div>
       <nav class="site-nav">
-        <a href="/index.html">← 返回忘忘看报</a>
-        <a href="/leaderboard.html">欧非榜单</a>
-        <a href="/analyzer.html">数据分析</a>
-        <a href="/guide.html" class="active">使用教程</a>
+        <a href="index.html">← 返回忘忘看报</a>
+        <a href="leaderboard.html">欧非榜单</a>
+        <a href="analyzer.html">数据分析</a>
+        <a href="guide.html" class="active">使用教程</a>
       </nav>
     </header>
 
@@ -43,7 +43,7 @@
       <section class="guide-section">
         <h2>② 在网页上查看数据分析</h2>
         <ol>
-          <li>回到<a href="/index.html">主页</a>，点击「导入 JSON 查看数据分析」卡片。</li>
+          <li>回到<a href="index.html">主页</a>，点击「导入 JSON 查看数据分析」卡片。</li>
           <li>把刚才导出的 <code>.json</code> 文件拖进去，或点击「选择文件」。</li>
           <li>页面会自动跳转到和本地工具一样的分析页：总览、SSR 时间线、限时卡池日历、概率与规则、成就标签、分享图，功能完全一致。</li>
           <li>这个过程<b>全部在你的浏览器里完成</b>：文件只会被 JavaScript 读进内存解析，不会上传到任何服务器，关闭标签页后就不留痕迹（除非你主动点了「导入」把一些设置写进浏览器本地存储）。</li>
@@ -53,7 +53,7 @@
       <section class="guide-section">
         <h2>③ 参与欧非榜单</h2>
         <ol>
-          <li>打开<a href="/leaderboard.html">欧非榜单</a>页面。</li>
+          <li>打开<a href="leaderboard.html">欧非榜单</a>页面。</li>
           <li>把你和朋友导出的 JSON 文件一起拖进去（可以多选）；每份文件会按「平均出货抽数」计算一行排名。</li>
           <li>榜单数据保存在<b>当前浏览器的本地存储（localStorage）</b>里，不会同步到服务器或其他设备。想和朋友真正放在同一张榜单比较，请都在同一台电脑/同一个浏览器里依次导入大家的 JSON；或者各自在自己电脑上导入后，口头/截图分享名次。</li>
           <li>随时可以在榜单页点「移除」删掉某一行，或「清空本机榜单」一次性清除。</li>
