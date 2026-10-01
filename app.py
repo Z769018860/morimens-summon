@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import json
 import os
 import psutil
@@ -10,7 +11,10 @@ import sqlite3
 import subprocess
 import sys
 import threading
+import time
+import uuid
 import webbrowser
+from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -37,13 +41,64 @@ def update_snapshot() -> dict:
     return result
 
 
-def update_worker(wait_auth: bool = False) -> None:
+def capture_port() -> int:
+    game_pids = {p.pid for p in psutil.process_iter(["name"])
+                 if (p.info.get("name") or "").lower() == "morimens.exe"}
+    ports = Counter(conn.raddr.port for conn in psutil.net_connections(kind="tcp")
+                    if conn.pid in game_pids and conn.raddr and conn.status == "ESTABLISHED")
+    return ports.most_common(1)[0][0] if ports else 12887
+
+
+def start_passive_capture(capture: Path, ready: Path, stop: Path, port: int) -> None:
+    args = subprocess.list2cmdline([str(ROOT / "capture_login_passive.py"),
+                                    "--output", str(capture), "--ready-file", str(ready),
+                                    "--stop-file", str(stop), "--port", str(port),
+                                    "--seconds", "300"])
+    result = ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable,
+                                                  args, str(ROOT), 0)
+    if result <= 32:
+        raise RuntimeError(f"管理员被动采集未启动（系统代码 {result}）")
+    deadline = time.monotonic() + 25
+    while time.monotonic() < deadline:
+        if ready.exists():
+            return
+        time.sleep(0.25)
+    raise RuntimeError("被动采集未就绪；请检查管理员权限提示")
+
+
+def cleanup_capture(capture: Path, ready: Path, stop: Path) -> None:
+    stop.write_text("STOP\n", encoding="ascii")
+    for _ in range(20):
+        try:
+            for path in (capture, ready, stop):
+                path.unlink(missing_ok=True)
+            return
+        except PermissionError:
+            time.sleep(0.5)
+
+
+def update_worker(mode: str = "now") -> None:
     command = [sys.executable, "-u", str(ROOT / "fetch_all_history.py")]
-    if wait_auth:
+    capture_files = None
+    if mode == "wait":
         command.extend(["--wait-auth", "180"])
     partial = False
     failure = None
     try:
+        if mode == "capture":
+            suffix = uuid.uuid4().hex[:12]
+            base = ROOT / "data" / "local" / f"login-{suffix}"
+            capture, ready, stop = (base.with_suffix(ext) for ext in (".pcap", ".ready", ".stop"))
+            capture_files = (capture, ready, stop)
+            port = capture_port()
+            with UPDATE_LOCK:
+                UPDATE.update(phase="prepare", message=f"正在准备读取本机 TCP/{port} 通讯；请在权限提示中允许被动采集。")
+            start_passive_capture(capture, ready, stop, port)
+            with UPDATE_LOCK:
+                UPDATE.update(phase="waiting", message=f"TCP/{port} 被动采集已就绪。现在请重启游戏并登录一次；检测到登录通讯后自动补页。")
+                UPDATE["log"].append(UPDATE["message"])
+            command.extend(["--fresh-capture", str(capture), "--capture-stop", str(stop),
+                            "--capture-port", str(port), "--wait-capture", "240"])
         env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
         process = subprocess.Popen(command, cwd=ROOT, stdout=subprocess.PIPE,
                                    stderr=subprocess.STDOUT, text=True, encoding="utf-8",
@@ -55,6 +110,8 @@ def update_worker(wait_auth: bool = False) -> None:
                 continue
             if line.startswith("CURRENT_AUTH_IN_RAM"):
                 phase, message = "login", "已读取当前游戏会话，正在建立查询连接…"
+            elif line.startswith("CURRENT_MAIN_TARGET"):
+                phase, message = "login", "已识别当前游戏主连接路由，正在连接对应服务器…"
             elif line.startswith("LOCAL_PAGES_LOADED"):
                 phase, message = "prepare", "已读取本地历史断点…"
             elif line.startswith(("AUTH_RESULT", "LOGIN_RESULT")):
@@ -72,11 +129,21 @@ def update_worker(wait_auth: bool = False) -> None:
                 phase, message = "failed", failure
             elif line.startswith("WAITING_AUTH"):
                 phase, message = "waiting", "已开始等待新登录连接。现在请重启游戏一次并登录；检测到会话后将自动查询。"
+            elif line.startswith("WAITING_CAPTURE"):
+                phase, message = "waiting", "正在等待新登录通讯；请在采集就绪后重启并登录游戏一次。"
+            elif line.startswith("FRESH_CAPTURE_READY"):
+                phase, message = "login", "已捕获新登录通讯，正在验证查询连接…"
+            elif line.startswith("NO_FRESH_CAPTURE"):
+                failure = "等待期间未捕获完整登录通讯；请确认在显示“采集就绪”后重启并登录游戏。"
+                phase, message = "failed", failure
             elif line.startswith("GAME_NOT_RUNNING"):
                 failure = "未检测到游戏进程。请启动游戏并登录，再尝试更新。"
                 phase, message = "failed", failure
             elif line.startswith("LOGIN_REJECTED"):
                 failure = "当前会话未通过游戏服务器验证。请重新登录游戏后再更新。"
+                phase, message = "failed", failure
+            elif line.startswith("RuntimeError: 游戏服务器未返回历史记录"):
+                failure = line.split(": ", 1)[1]
                 phase, message = "failed", failure
             elif line.startswith("HISTORY_COVERAGE"):
                 phase, message = "finish", "正在核对各类别的采集范围…"
@@ -100,7 +167,10 @@ def update_worker(wait_auth: bool = False) -> None:
     except Exception as exc:
         with UPDATE_LOCK:
             UPDATE.update(running=False, phase="failed", result="failed",
-                          message=f"更新启动失败：{type(exc).__name__}")
+                          message=f"更新启动失败：{str(exc)[:140]}")
+    finally:
+        if capture_files:
+            cleanup_capture(*capture_files)
 
 
 def payload(db_path: Path = DB, catalog_path: Path = CATALOG) -> dict:
@@ -158,11 +228,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
             length = int(self.headers.get("Content-Length", "0"))
             body = json.loads(self.rfile.read(length) or b"{}") if length < 1024 else {}
-            wait_auth = body.get("mode") == "wait"
+            mode = body.get("mode") if body.get("mode") in ("now", "wait", "capture") else "now"
             UPDATE.update(running=True, phase="prepare", message="正在准备读取当前游戏会话…",
                           log=["开始更新；本次只进行一轮网关和历史查询登录。"], result=None,
                           reason=None)
-        threading.Thread(target=update_worker, args=(wait_auth,), daemon=True).start()
+        threading.Thread(target=update_worker, args=(mode,), daemon=True).start()
         self.send_json({"started": True}, 202)
 
 

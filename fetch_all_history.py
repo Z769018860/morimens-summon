@@ -8,9 +8,11 @@ only in RAM. No ticket, token, key, or raw login frame is written by this tool.
 from __future__ import annotations
 
 import argparse
+import ctypes
 import importlib.util
 import json
 import math
+import re
 import socket
 import sys
 import time
@@ -67,6 +69,42 @@ def captured_logins(path: Path, reference, pilot):
     return gateway, mains[-1]
 
 
+def current_main_target(memory, pid: int) -> str:
+    """Read the current shard route from the game process without modifying it."""
+    handle = memory.K.OpenProcess(0x0410, False, pid)
+    if not handle:
+        raise ctypes.WinError(ctypes.get_last_error())
+    found = set()
+    address = 0
+    try:
+        mbi = memory.MEMORY_BASIC_INFORMATION()
+        while memory.K.VirtualQueryEx(handle, ctypes.c_void_p(address), ctypes.byref(mbi), ctypes.sizeof(mbi)):
+            base, size = mbi.BaseAddress or 0, mbi.RegionSize
+            next_address = base + size
+            if next_address <= address:
+                break
+            address = next_address
+            if mbi.State != 0x1000 or mbi.Protect & (0x01 | 0x100):
+                continue
+            if not mbi.Protect & (0x02 | 0x04 | 0x08 | 0x20 | 0x40 | 0x80):
+                continue
+            for offset in range(0, size, 1024 * 1024):
+                length = min(1024 * 1024, size - offset)
+                buf = ctypes.create_string_buffer(length)
+                got = ctypes.c_size_t()
+                if not memory.K.ReadProcessMemory(handle, ctypes.c_void_p(base + offset),
+                                                  buf, length, ctypes.byref(got)) or not got.value:
+                    continue
+                for match in re.findall(rb"operate-global-game-[0-9]+\.operate-global-game\.z[0-9]+-p[0-9]+",
+                                        buf.raw[:got.value]):
+                    found.add(match.decode("ascii"))
+    finally:
+        memory.K.CloseHandle(handle)
+    if len(found) != 1:
+        raise RuntimeError(f"当前主连接路由无法唯一确定：{len(found)} 个候选")
+    return found.pop()
+
+
 def recv_for_session(conn, session: int, pending: bytearray, pilot, timeout: float = 8):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -96,6 +134,9 @@ def recv_for_session(conn, session: int, pending: bytearray, pilot, timeout: flo
 def decode_history(blobs, expected_type: int, page: int):
     objects = []
     for blob in blobs:
+        if blob.startswith(b"CommonCall "):
+            raise RuntimeError(f"游戏服务器未返回历史记录（类别 {expected_type} 第 {page} 页）；"
+                               "请稍后重试，并核对当前主连接路由。")
         if blob.startswith(b"\x04\x22\x4d\x18"):
             blob = lz4.frame.decompress(blob)
         try:
@@ -103,7 +144,8 @@ def decode_history(blobs, expected_type: int, page: int):
         except Exception:
             continue
     if len(objects) != 1 or not isinstance(objects[0], list) or not objects[0]:
-        raise ValueError(f"History {expected_type}/{page} 响应结构未知")
+        raise ValueError(f"History {expected_type}/{page} 响应结构未知："
+                         f"blobs={len(blobs)} objects={[type(x).__name__ for x in objects]}")
     body = objects[0][0]
     if not isinstance(body, dict) or not isinstance(body.get("count"), int):
         raise ValueError(f"History {expected_type}/{page} 缺少 count")
@@ -126,6 +168,10 @@ def main() -> None:
     ap.add_argument("--import-decoded", type=Path, default=ROOT / "data" / "local" / "loopback_decoded_snapshot.json")
     ap.add_argument("--local-only", action="store_true", help="只整理已保存数据，不登录或查询游戏")
     ap.add_argument("--wait-auth", type=int, default=0, help="等待新登录材料的最长秒数")
+    ap.add_argument("--fresh-capture", type=Path, help="本次登录前启动的被动抓包文件")
+    ap.add_argument("--capture-stop", type=Path, help="识别登录后通知采集器停止")
+    ap.add_argument("--capture-port", type=int, default=12887)
+    ap.add_argument("--wait-capture", type=int, default=240)
     ap.add_argument("--types", type=int, nargs="+", default=[1, 2, 16, 17, 10])
     ap.add_argument("--max-pages", type=int, default=1000)
     ap.add_argument("--request-delay", type=float, default=0.05)
@@ -146,33 +192,58 @@ def main() -> None:
     reference = decode.load_reference()
     pilot = load_research("morimens_direct_facade_pilot")
     fresh = load_research("morimens_fresh_memory_login_pilot")
-    memory = load_research("inspect_morimens_auth_memory_readonly")
-    deadline = time.monotonic() + args.wait_auth
-    if args.wait_auth:
-        print("WAITING_AUTH", args.wait_auth, flush=True)
-    found = None
-    while True:
-        try:
-            found = memory.find_current_auth_blob(
-                max_seconds=30 if not args.wait_auth else min(8, max(1, deadline-time.monotonic())))
-        except RuntimeError as exc:
-            if "expected one Morimens process" in str(exc) and not args.wait_auth:
-                print("GAME_NOT_RUNNING", flush=True)
-                raise SystemExit(2)
-            if not args.wait_auth or "expected one Morimens process" not in str(exc):
-                raise
-        if found or not args.wait_auth or time.monotonic() >= deadline:
-            break
-        time.sleep(1)
-    if found:
-        pid, auth_blob, _ = found
-        print("CURRENT_AUTH_IN_RAM", "pid", pid, flush=True)
+    if args.fresh_capture:
+        passive = load_research("morimens_fresh_pcap_login_pilot")
+        previous = passive.login_frames(args.capture, "operate-global-game", args.capture_port)
+        previous_hash = passive.credential_fingerprint(previous[2]) if previous else "0" * 64
+        print("WAITING_CAPTURE", args.capture_port, flush=True)
+        pair = passive.wait_for_pair(args.fresh_capture, previous_hash,
+                                     args.wait_capture, args.capture_port)
+        if pair is None:
+            print("NO_FRESH_CAPTURE", flush=True)
+            raise SystemExit(2)
+        gateway_frames, (target, main_frames) = pair
+        gateway_auth, gateway_login, auth_blob = gateway_frames
+        main_auth, main_login, _ = main_frames
+        gateway_auth_session = pilot.packet_fields(gateway_auth)[0].get(1)
+        gateway_login_session = pilot.packet_fields(gateway_login)[0].get(1)
+        main_auth_session = pilot.packet_fields(main_auth)[0].get(1)
+        main_login_session = pilot.packet_fields(main_login)[0].get(1)
+        if args.capture_stop:
+            args.capture_stop.write_text("STOP\n", encoding="ascii")
+        print("FRESH_CAPTURE_READY", "target", target, flush=True)
     else:
-        print("NO_CURRENT_AUTH", flush=True)
-        raise SystemExit(2)
-    gateway, (target, main) = captured_logins(args.capture, reference, pilot)
-    gateway_auth, gateway_login, gateway_auth_session, gateway_login_session = gateway
-    main_auth, main_login, main_auth_session, main_login_session = main
+        memory = load_research("inspect_morimens_auth_memory_readonly")
+        deadline = time.monotonic() + args.wait_auth
+        if args.wait_auth:
+            print("WAITING_AUTH", args.wait_auth, flush=True)
+        found = None
+        while True:
+            try:
+                found = memory.find_current_auth_blob(
+                    max_seconds=30 if not args.wait_auth else min(8, max(1, deadline-time.monotonic())))
+            except RuntimeError as exc:
+                if "expected one Morimens process" in str(exc) and not args.wait_auth:
+                    print("GAME_NOT_RUNNING", flush=True)
+                    raise SystemExit(2)
+                if not args.wait_auth or "expected one Morimens process" not in str(exc):
+                    raise
+            if found or not args.wait_auth or time.monotonic() >= deadline:
+                break
+            time.sleep(1)
+        if found:
+            pid, auth_blob, _ = found
+            print("CURRENT_AUTH_IN_RAM", "pid", pid, flush=True)
+        else:
+            print("NO_CURRENT_AUTH", flush=True)
+            raise SystemExit(2)
+        gateway, (target, main) = captured_logins(args.capture, reference, pilot)
+        current_target = current_main_target(memory, pid)
+        if current_target != target:
+            print("CURRENT_MAIN_TARGET", current_target, flush=True)
+        target = current_target
+        gateway_auth, gateway_login, gateway_auth_session, gateway_login_session = gateway
+        main_auth, main_login, main_auth_session, main_login_session = main
     gw = fresh.connect_and_login("operate-global-game",
         fresh.replace_auth_blob(gateway_auth, auth_blob), gateway_login,
         gateway_auth_session, gateway_login_session)
