@@ -66,7 +66,7 @@ def captured_logins(path: Path, reference, pilot):
     if gateway is None or not mains:
         summary = capture_routes.transport_summary(path, reference)
         if summary["flows"]["tls"] and not summary["flows"]["sconn"]:
-            raise RuntimeError("TLS_PROXY_DETECTED: 当前采集到的是 TLS 通道，无法直接解析 Sconn 登录握手")
+            raise RuntimeError("TLS_TRANSPORT_DETECTED: 当前采集到的是 TLS 通道，无法直接解析 Sconn 登录握手")
         raise RuntimeError("当前抓包缺少完整的 gateway/main 登录序列")
     return gateway, mains[-1]
 
