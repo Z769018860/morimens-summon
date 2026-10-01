@@ -21,13 +21,13 @@
     </header>
 
     <section class="site-hero" style="padding:40px 46px">
-      <div class="eyebrow">LUCK LEADERBOARD</div>
+      <div class="eyebrow">LUCK LEADERBOARD · 跨设备</div>
       <h1>欧非榜单</h1>
-      <p>导入几份《导入 JSON 查看数据分析》页面或本地工具导出的 JSON，就能按「平均出货抽数」给大家排名。榜单只保存在<b>当前这台设备、这个浏览器</b>里——不会上传到任何服务器，想和朋友比较，请都在同一台电脑上导入各自的 JSON，或者清楚告知对方这只是本机临时榜单。</p>
+      <p>导入一份导出的 JSON，按「平均出货抽数」加入跨设备共享榜单——任何人打开这个页面都能看到。上传前会让你确认昵称/UID（都可以留空，匿名上传），只发送统计摘要（抽数、SSR 数、UP/歪次数、成就标签），<b>不会上传完整抽卡记录</b>。数据保存在站长自建的评论服务 <code>testbox.qingdengbuyi.top</code> 上，不是本工具自己的服务器。</p>
     </section>
 
     <div class="import-drop" id="drop">
-      <div>把一份或多份抽卡记录 JSON 拖到这里加入榜单，或</div>
+      <div>把一份或多份抽卡记录 JSON 拖到这里上传到榜单，或</div>
       <label for="board-file">选择文件（可多选）</label>
       <input type="file" id="board-file" accept="application/json" multiple>
       <div id="board-error" style="color:#f0a6b1;margin-top:10px"></div>
@@ -35,12 +35,12 @@
 
     <div class="board-toolbar">
       <span class="subtle" id="board-count">当前榜单：0 位玩家</span>
-      <button class="ghost" id="clear-board" style="margin-left:auto">清空本机榜单</button>
+      <button class="ghost" id="clear-board" style="margin-left:auto">本机隐藏全部</button>
     </div>
 
     <div id="board-wrap"></div>
 
-    <footer class="site-footer">排名仅基于“平均出货抽数”，样本不足 5 次有效间隔的玩家不参与排序，仅供娱乐 <span>·</span> 所有数据保存在你的浏览器本地存储（localStorage）里</footer>
+    <footer class="site-footer">排名仅基于"平均出货抽数"，样本不足 5 次有效间隔的玩家不参与排序，仅供娱乐 <span>·</span> 榜单数据保存在 testbox.qingdengbuyi.top（站长自建），所有人可见 <span>·</span> "本机隐藏"只影响你自己看到的列表，不会删除服务器上的记录</footer>
   </div>
   <script src="leaderboard.js" defer></script>
 </body>
