@@ -74,6 +74,16 @@ def rank_main_targets(routes: set[str]) -> list[str]:
                   reverse=True)
 
 
+def resolve_fresh_capture_pair(passive, pair, capture: Path, port: int):
+    """Return the matching route with the gateway/main frame triples."""
+    gateway_frames, main_frames = pair
+    matched = passive.main_login_frames(capture, port, gateway_frames[2])
+    if matched is None or matched[1] != main_frames:
+        raise RuntimeError("新抓包中的主连接路由与登录帧不一致")
+    target, _ = matched
+    return gateway_frames, target, main_frames
+
+
 def current_main_targets(memory, pid: int) -> list[str]:
     """Read candidate shard routes from the game process without modifying it."""
     handle = memory.K.OpenProcess(0x0410, False, pid)
@@ -209,7 +219,8 @@ def main() -> None:
         if pair is None:
             print("NO_FRESH_CAPTURE", flush=True)
             raise SystemExit(2)
-        gateway_frames, (target, main_frames) = pair
+        gateway_frames, target, main_frames = resolve_fresh_capture_pair(
+            passive, pair, args.fresh_capture, args.capture_port)
         gateway_auth, gateway_login, auth_blob = gateway_frames
         main_auth, main_login, _ = main_frames
         gateway_auth_session = pilot.packet_fields(gateway_auth)[0].get(1)
