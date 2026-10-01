@@ -1,0 +1,35 @@
+name: Deploy preview to GitHub Pages
+
+# Deploys web/ (the static homepage / analyzer / leaderboard / guide) so it can
+# be previewed without running the local Python tool. Requires a one-time
+# manual step in the repo: Settings → Pages → Build and deployment → Source
+# = "GitHub Actions" (cannot be set from a workflow file).
+on:
+  push:
+    branches:
+      - claude/login-detection-auto-update-2c5hei
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+      - id: deployment
+        uses: actions/deploy-pages@v4

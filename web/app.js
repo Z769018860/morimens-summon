@@ -129,7 +129,11 @@ function renderOverview(){
   $('category-analysis').innerHTML=data.coverage.map(c=>{const group=categoryRows(c.history_type).filter(isIncluded),hits=group.filter(isSSR),values=[...ssrIntervals(c.history_type).values()].filter(Number.isFinite),mean=values.length?(values.reduce((a,b)=>a+b,0)/values.length).toFixed(1):'—';return `<div class="category-row"><b>${html(nameFor(c.history_type))}</b><span>${group.length} 抽 · SSR ${hits.length} · 出率 ${group.length?(hits.length/group.length*100).toFixed(1):'—'}%</span><strong>均 ${mean} 抽</strong></div>`}).join('');
   const buckets=[['1–5 抽',1,5],['6–10 抽',6,10],['11–20 抽',11,20],['21–30 抽',21,30],['31 抽以上',31,Infinity]],counts=buckets.map(([,lo,hi])=>valid.filter(n=>n>=lo&&n<=hi).length),maxBucket=Math.max(1,...counts);
   $('interval-analysis').innerHTML=buckets.map(([label],i)=>`<div class="interval-row"><span>${label}</span><div class="bar"><div class="fill" style="width:${counts[i]/maxBucket*100}%"></div></div><b>${counts[i]}</b></div>`).join('')+`<p class="analysis-note">${valid.length} 个连续区间；缺页或首段未覆盖不纳入平均值。</p>`;
-  const hero=data.catalog.characters.find(x=>x.name==='蚀灭·萝坦'&&x.icon)||data.catalog.characters.find(x=>x.icon);$('hero-portrait').src=hero?.icon||'';
+  const hero=data.catalog.characters.find(x=>x.name==='蚀灭·萝坦'&&x.icon)||data.catalog.characters.find(x=>x.icon);
+  // An empty/missing src renders as a broken-image icon in most browsers —
+  // hide the element instead (e.g. import mode has no catalog, so no art).
+  $('hero-portrait').hidden=!hero?.icon;
+  if(hero?.icon)$('hero-portrait').src=hero.icon;
 }
 function renderTabs(){const tabs=[['all','全部'],...data.coverage.map(c=>[String(c.history_type),nameFor(c.history_type)])];$('pool-tabs').innerHTML=tabs.map(([id,label])=>`<button data-type="${html(id)}" class="${selectedType===id?'active':''}">${html(label)}</button>`).join('')}
 function renderHistory(){
