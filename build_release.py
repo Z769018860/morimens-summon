@@ -15,6 +15,7 @@ INCLUDE_FILES = [
     "app.py",
     "history_store.py",
     "summon_cli.py",
+    "connection_diagnostics.py",
     "sync_skeydb_assets.py",
     "start.cmd",
     "requirements.txt",
