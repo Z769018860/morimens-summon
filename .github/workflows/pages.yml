@@ -7,7 +7,7 @@ name: Deploy preview to GitHub Pages
 on:
   push:
     branches:
-      - claude/login-detection-auto-update-2c5hei
+      - main
   workflow_dispatch:
 
 permissions:
