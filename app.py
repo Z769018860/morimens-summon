@@ -22,7 +22,7 @@ from urllib.parse import urlparse
 import history_store
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 WEB = ROOT / "web"
 DB = ROOT / "data" / "local" / "history.sqlite3"
 CATALOG = ROOT / "data" / "local" / "catalog.json"
@@ -50,10 +50,11 @@ def capture_port() -> int:
 
 
 def start_passive_capture(capture: Path, ready: Path, stop: Path, port: int) -> None:
-    args = subprocess.list2cmdline([str(ROOT / "capture_login_passive.py"),
-                                    "--output", str(capture), "--ready-file", str(ready),
-                                    "--stop-file", str(stop), "--port", str(port),
-                                    "--seconds", "300"])
+    worker = (["--worker", "capture-login"] if getattr(sys, "frozen", False)
+              else [str(ROOT / "capture_login_passive.py")])
+    args = subprocess.list2cmdline(worker + ["--output", str(capture), "--ready-file", str(ready),
+                                   "--stop-file", str(stop), "--port", str(port),
+                                   "--seconds", "300"])
     result = ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable,
                                                   args, str(ROOT), 0)
     if result <= 32:
@@ -78,7 +79,8 @@ def cleanup_capture(capture: Path, ready: Path, stop: Path) -> None:
 
 
 def update_worker(mode: str = "now") -> None:
-    command = [sys.executable, "-u", str(ROOT / "fetch_all_history.py")]
+    command = ([sys.executable, "--worker", "fetch-history"] if getattr(sys, "frozen", False)
+               else [sys.executable, "-u", str(ROOT / "fetch_all_history.py")])
     capture_files = None
     if mode == "wait":
         command.extend(["--wait-auth", "180"])

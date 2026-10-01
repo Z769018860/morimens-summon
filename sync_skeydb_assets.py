@@ -9,10 +9,11 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 UPSTREAM = ROOT / "data" / "local" / "SKeyDB"
 LABELS = ROOT / "resources" / "labels.zh-CN.json"
 ASSETS = ROOT / "web" / "assets"

@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import sys
 from collections import Counter
 from pathlib import Path
 
@@ -20,8 +21,8 @@ import msgpack
 import sympy
 
 
-ROOT = Path(__file__).resolve().parent
-RESEARCH = ROOT.parent / "waline-avatars" / "decode_morimens_passive.py"
+ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+RESEARCH = ROOT / "protocol" / "decode_morimens_passive.py"
 
 
 def load_reference():

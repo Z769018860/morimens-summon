@@ -26,8 +26,8 @@ import decode_summon_capture as decode
 import history_store as store
 
 
-ROOT = Path(__file__).resolve().parent
-RESEARCH = ROOT.parent / "waline-avatars"
+ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+RESEARCH = ROOT / "protocol"
 
 
 def load_research(name: str):
