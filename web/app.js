@@ -13,6 +13,48 @@ let overrides = JSON.parse(localStorage.getItem('morimens-overrides') || '{}');
 // all — not just an override of an already-detected pool.
 let customBanners = JSON.parse(localStorage.getItem('morimens-custom-banners') || '[]');
 function saveCustomBanners(){localStorage.setItem('morimens-custom-banners', JSON.stringify(customBanners))}
+// 我的 Box: per-item (character/wheel) pull count -> 启灵/叠位, persisted and
+// accumulated across imports (the game's own history has a limited window,
+// so a later export may no longer contain pulls an earlier one did — the Box
+// only ever adds newly-seen pulls, keyed by record, never recomputes from
+// scratch). Caps are a configurable guess, not verified game data.
+const DEFAULT_BOX_CAPS = {SSR:6,SR:6,R:6,Genesis:1};
+let box = JSON.parse(localStorage.getItem('morimens-box') || '{}');
+let boxCaps = {...DEFAULT_BOX_CAPS, ...JSON.parse(localStorage.getItem('morimens-box-caps') || '{}')};
+function saveBox(){localStorage.setItem('morimens-box', JSON.stringify(box))}
+function saveBoxCaps(){localStorage.setItem('morimens-box-caps', JSON.stringify(boxCaps))}
+function boxCap(rarity){return boxCaps[rarity]??boxCaps.R??6}
+function boxAutoStack(entry){return Math.min(Math.max(0,entry.countedKeys.length-1), boxCap(entry.rarity))}
+function boxDisplayStack(entry){return entry.manualStack!=null?entry.manualStack:boxAutoStack(entry)}
+function updateBoxFromRecords(){
+  let changed=false;
+  const sets={};
+  for(const r of data.records){
+    if(!isIncluded(r))continue;
+    const meta=metaOf(r);
+    if(meta.kind!=='character'&&meta.kind!=='wheel')continue;
+    const name=r.name,key=keyOf(r);
+    if(!box[name]){box[name]={name,kind:meta.kind,rarity:meta.rarity,countedKeys:[],manualStack:null,manualLevel:null}}
+    const entry=box[name];entry.kind=meta.kind;entry.rarity=meta.rarity;
+    if(!sets[name])sets[name]=new Set(entry.countedKeys);
+    if(!sets[name].has(key)){sets[name].add(key);entry.countedKeys.push(key);changed=true}
+  }
+  if(changed)saveBox();
+}
+function mergeBox(incoming){
+  if(!incoming||typeof incoming!=='object')return;
+  let changed=false;
+  for(const name in incoming){
+    const inc=incoming[name];
+    if(!inc||!Array.isArray(inc.countedKeys))continue;
+    if(!box[name]){box[name]={name,kind:inc.kind,rarity:inc.rarity,countedKeys:[],manualStack:null,manualLevel:null}}
+    const entry=box[name],set=new Set(entry.countedKeys);
+    for(const k of inc.countedKeys)if(!set.has(k)){set.add(k);entry.countedKeys.push(k);changed=true}
+    if(entry.manualStack==null&&inc.manualStack!=null){entry.manualStack=inc.manualStack;changed=true}
+    if(entry.manualLevel==null&&inc.manualLevel!=null){entry.manualLevel=inc.manualLevel;changed=true}
+  }
+  if(changed)saveBox();
+}
 const IMPORT_MODE = new URLSearchParams(location.search).get('import') === '1';
 function saveExcluded(){localStorage.setItem('morimens-excluded', JSON.stringify([...excluded]))}
 function saveOverrides(){localStorage.setItem('morimens-overrides', JSON.stringify(overrides))}
@@ -210,16 +252,21 @@ function renderCustomBanners(){
       <button class="board-remove" data-cb-remove="${html(b.id)}">删除</button>
     </div>`).join('') : '<p class="source-note">还没有添加自定义卡池。</p>';
 }
-function renderRules(){for(const [id,key] of [['base-rate','base'],['combined-rate','combined'],['hard-pity','pity'],['up-rate','up']])$(id).value=rules[key];$('profile-uid').value=profile.uid||'';$('profile-nickname').value=profile.nickname||''}
-function showView(name){for(const v of document.querySelectorAll('.view'))v.classList.toggle('active',v.id===name);for(const n of document.querySelectorAll('.nav'))n.classList.toggle('active',n.dataset.view===name);$('view-name').textContent=({overview:'抽卡总览',history:'SSR 时间线',banners:'限时卡池',rules:'概率与规则'})[name];if(name==='history')renderHistory();if(name==='banners')renderBanners();if(name==='rules')renderRules();window.scrollTo({top:0,behavior:'smooth'})}
+function renderRules(){
+  for(const [id,key] of [['base-rate','base'],['combined-rate','combined'],['hard-pity','pity'],['up-rate','up']])$(id).value=rules[key];
+  $('profile-uid').value=profile.uid||'';$('profile-nickname').value=profile.nickname||'';
+  for(const rarity of ['SSR','SR','R','Genesis'])$(`box-cap-${rarity}`).value=boxCaps[rarity];
+}
+function showView(name){for(const v of document.querySelectorAll('.view'))v.classList.toggle('active',v.id===name);for(const n of document.querySelectorAll('.nav'))n.classList.toggle('active',n.dataset.view===name);$('view-name').textContent=({overview:'抽卡总览',history:'SSR 时间线',banners:'限时卡池',box:'我的 Box',rules:'概率与规则'})[name];if(name==='history')renderHistory();if(name==='banners')renderBanners();if(name==='box')renderBox();if(name==='rules')renderRules();window.scrollTo({top:0,behavior:'smooth'})}
 function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
 function structured(){
   const intervals=allIntervals();
-  return {schemaVersion:4,generatedAt:new Date().toISOString(),source:'Summon.QuerySummonHistory',timeZone:'Asia/Shanghai',
+  return {schemaVersion:5,generatedAt:new Date().toISOString(),source:'Summon.QuerySummonHistory',timeZone:'Asia/Shanghai',
     player:{uid:profile.uid||null,nickname:profile.nickname||null},
     coverage:data.coverage,rules:{...rules,verified:false},
     achievementTags:computeAchievements().map(a=>a.label),
     customBanners,// user-defined banner pools (name/kind/featuredZh/start/end), travels with the file
+    box,boxCaps,// 我的 Box: per-item pull-derived 启灵/叠位 + manual corrections, travels with the file
     manualAssignments:Object.entries(overrides).filter(([,v])=>v).map(([key,bannerId])=>({key,bannerId})),
     records:data.records.map(r=>({...r,rarity:metaOf(r).rarity,kind:metaOf(r).kind,
       pullsSinceSSR:isSSR(r)?intervals.get(keyOf(r))??null:null,
@@ -228,6 +275,47 @@ function structured(){
 }
 function exportJSON(){download(new Blob([JSON.stringify(structured(),null,2)],{type:'application/json;charset=utf-8'}),`morimens-summon-history${profile.nickname?'-'+profile.nickname:''}.json`)}
 function exportCSV(){const s=structured(),fields=['history_type','ordinal','timestamp','item_tid','name','rarity','kind','pullsSinceSSR','bannerId','bannerAssignment','upStatus','excluded'];const quote=v=>'"'+String(v??'').replaceAll('"','""')+'"';download(new Blob(['\ufeff'+[fields.join(','),...s.records.map(r=>fields.map(f=>quote(r[f])).join(','))].join('\r\n')],{type:'text/csv;charset=utf-8'}),'morimens-summon-history.csv')}
+function boxRows(){
+  return Object.values(box).map(e=>({name:e.name,kind:e.kind,rarity:e.rarity,pulls:e.countedKeys.length,
+    cap:boxCap(e.rarity),autoStack:boxAutoStack(e),manualStack:e.manualStack,manualLevel:e.manualLevel}))
+    .sort((a,b)=>a.kind.localeCompare(b.kind)||b.pulls-a.pulls||a.name.localeCompare(b.name,'zh'));
+}
+// \u7eaf\u62bd\u5361\u6c47\u603b\u7248\uff1a\u53ea\u542b\u4ece\u62bd\u5361\u8bb0\u5f55\u80fd\u7b97\u51fa\u6765\u7684\u4e1c\u897f\uff0c\u4e0d\u542b\u4efb\u4f55\u624b\u52a8\u4fee\u6b63\u3002
+function exportBoxSummary(){
+  const rows=boxRows().map(({name,kind,rarity,pulls,cap,autoStack})=>({name,kind,rarity,pulls,cap,stack:autoStack}));
+  const payload={schemaVersion:1,type:'box-summary',generatedAt:new Date().toISOString(),player:{uid:profile.uid||null,nickname:profile.nickname||null},caps:boxCaps,items:rows};
+  download(new Blob([JSON.stringify(payload,null,2)],{type:'application/json;charset=utf-8'}),`morimens-box-summary${profile.nickname?'-'+profile.nickname:''}.json`);
+}
+// \u73a9\u5bb6\u4fee\u6b63\u7248\uff1a\u624b\u52a8\u53e0\u4f4d/\u7b49\u7ea7\u8986\u76d6\u81ea\u52a8\u503c\uff08\u672a\u624b\u52a8\u4fee\u6539\u7684\u9879\u76ee\u4ecd\u7528\u81ea\u52a8\u53e0\u4f4d\uff0c\u7b49\u7ea7\u7559\u7a7a\uff09\u3002
+function exportBoxCorrected(){
+  const rows=boxRows().map(({name,kind,rarity,pulls,cap,autoStack,manualStack,manualLevel})=>({name,kind,rarity,pulls,cap,autoStack,stack:manualStack??autoStack,level:manualLevel??null,corrected:manualStack!=null||manualLevel!=null}));
+  const payload={schemaVersion:1,type:'box-corrected',generatedAt:new Date().toISOString(),player:{uid:profile.uid||null,nickname:profile.nickname||null},caps:boxCaps,items:rows};
+  download(new Blob([JSON.stringify(payload,null,2)],{type:'application/json;charset=utf-8'}),`morimens-box-corrected${profile.nickname?'-'+profile.nickname:''}.json`);
+}
+function exportBoxCSV(corrected){
+  const fields=corrected?['kind','name','rarity','pulls','cap','autoStack','stack','level']:['kind','name','rarity','pulls','cap','stack'];
+  const rows=boxRows().map(({name,kind,rarity,pulls,cap,autoStack,manualStack,manualLevel})=>corrected
+    ?{kind:KIND_LABEL[kind]||kind,name,rarity,pulls,cap,autoStack,stack:manualStack??autoStack,level:manualLevel??''}
+    :{kind:KIND_LABEL[kind]||kind,name,rarity,pulls,cap,stack:autoStack});
+  const quote=v=>'"'+String(v??'').replaceAll('"','""')+'"';
+  download(new Blob(['\ufeff'+[fields.join(','),...rows.map(r=>fields.map(f=>quote(r[f])).join(','))].join('\r\n')],{type:'text/csv;charset=utf-8'}),
+    `morimens-box-${corrected?'corrected':'summary'}.csv`);
+}
+function renderBox(){
+  const rows=boxRows();
+  const characters=rows.filter(r=>r.kind==='character'),wheels=rows.filter(r=>r.kind==='wheel');
+  $('box-summary').innerHTML=`<span>\u89d2\u8272 <b>${characters.length}</b> \u4e2a</span><span>\u547d\u8f6e <b>${wheels.length}</b> \u4e2a</span><span>\u5df2\u5230\u53e0\u4f4d\u4e0a\u9650 <b>${rows.filter(r=>r.autoStack>=r.cap).length}</b> \u4e2a</span>`;
+  const renderGroup=list=>list.length?list.map(r=>`
+    <div class="box-row">
+      <div class="placeholder ${rarityClass(r.rarity)}" style="width:44px;height:44px;flex:0 0 44px;border-radius:9px">${html(initials(r.name))}</div>
+      <div class="box-name"><b>${html(r.name)}</b><small>${html(r.rarity)} \u00b7 \u5df2\u62c9\u53d6 ${r.pulls} \u6b21</small></div>
+      <div class="box-field"><label>\u81ea\u52a8\u53e0\u4f4d</label><div class="box-readonly">${r.autoStack} / ${r.cap}</div></div>
+      <div class="box-field"><label>\u624b\u52a8\u53e0\u4f4d</label><input type="number" min="0" max="${r.cap}" class="box-stack" data-name="${html(r.name)}" placeholder="${r.autoStack}" value="${r.manualStack??''}"></div>
+      <div class="box-field"><label>\u7b49\u7ea7</label><input type="number" min="0" class="box-level" data-name="${html(r.name)}" placeholder="\u672a\u586b\u5199" value="${r.manualLevel??''}"></div>
+    </div>`).join('') : '<p class="source-note">\u6682\u65e0\u8bb0\u5f55\u3002</p>';
+  $('box-characters').innerHTML=renderGroup(characters);
+  $('box-wheels').innerHTML=renderGroup(wheels);
+}
 function roundRect(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath()}
 const RARITY_FILL={SSR:['#f6dfa0','#c99d4e'],SR:['#d7def0','#8fa3c7'],R:['#aeb9c2','#798591'],Genesis:['#f2b4e0','#6fd9f0']};
 // Canvas counterpart of the .placeholder badge CSS, for the same no-artwork reason.
@@ -303,6 +391,11 @@ function applyLoadedData(loaded){
     profile={uid:loaded.player.uid||'',nickname:loaded.player.nickname||''};
     localStorage.setItem('morimens-profile',JSON.stringify(profile));
   }
+  if(loaded.boxCaps&&typeof loaded.boxCaps==='object'&&JSON.stringify(boxCaps)===JSON.stringify(DEFAULT_BOX_CAPS)){
+    boxCaps={...DEFAULT_BOX_CAPS,...loaded.boxCaps};saveBoxCaps();
+  }
+  mergeBox(loaded.box);
+  updateBoxFromRecords();
 }
 async function refresh(){
   if(IMPORT_MODE){
@@ -378,6 +471,35 @@ document.addEventListener('click',e=>{
     customBanners=customBanners.filter(b=>b.id!==id);
     for(const key of Object.keys(overrides))if(overrides[key]===id)delete overrides[key];
     saveCustomBanners();saveOverrides();renderCustomBanners();renderOverview();renderHistory();
+  }
+});
+$('save-box-caps').onclick=()=>{
+  const next={};
+  for(const rarity of ['SSR','SR','R','Genesis']){
+    const value=Number($(`box-cap-${rarity}`).value);
+    if(!Number.isInteger(value)||value<0){alert('叠位上限需要是 0 或以上的整数');return}
+    next[rarity]=value;
+  }
+  boxCaps=next;saveBoxCaps();renderBox();alert('叠位上限已保存在本机浏览器');
+};
+$('export-box-summary-json').onclick=exportBoxSummary;
+$('export-box-corrected-json').onclick=exportBoxCorrected;
+$('export-box-summary-csv').onclick=()=>exportBoxCSV(false);
+$('export-box-corrected-csv').onclick=()=>exportBoxCSV(true);
+document.addEventListener('change',e=>{
+  const stackInput=e.target.closest('.box-stack');
+  if(stackInput){
+    const name=stackInput.dataset.name,entry=box[name];if(!entry)return;
+    const raw=stackInput.value.trim();
+    entry.manualStack=raw===''?null:Math.max(0,Math.min(boxCap(entry.rarity),Number(raw)||0));
+    saveBox();renderBox();return;
+  }
+  const levelInput=e.target.closest('.box-level');
+  if(levelInput){
+    const name=levelInput.dataset.name,entry=box[name];if(!entry)return;
+    const raw=levelInput.value.trim();
+    entry.manualLevel=raw===''?null:Math.max(0,Number(raw)||0);
+    saveBox();
   }
 });
 if(IMPORT_MODE)document.body.classList.add('import-mode');

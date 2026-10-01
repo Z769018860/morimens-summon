@@ -16,6 +16,7 @@
         <button class="nav active" data-view="overview"><span>◈</span> 总览</button>
         <button class="nav" data-view="history"><span>▤</span> 抽卡记录</button>
         <button class="nav" data-view="banners"><span>◷</span> 限时卡池</button>
+        <button class="nav" data-view="box"><span>▣</span> 我的 Box</button>
         <button class="nav" data-view="rules"><span>◇</span> 概率与规则</button>
       </nav>
       <a class="nav home-link" href="index.html">← 返回忘忘看报</a>
@@ -55,10 +56,19 @@
         </div>
         <div id="custom-banner-list"></div>
       </section>
+      <section class="view" id="box">
+        <div class="page-title"><div><span class="kicker">MY BOX</span><h1>我的 Box</h1><p>按抽卡记录统计每个角色/命轮拉到过几次，换算成启灵/叠位；记录有限时新导入的记录只会往已有数据上叠加，到达上限后不再增加。叠位上限可在「概率与规则」页修改，仅供参考，不是官方数据。</p></div>
+          <div class="export-row"><button class="ghost" id="export-box-summary-json">纯抽卡汇总版 JSON</button><button class="ghost" id="export-box-summary-csv">纯抽卡汇总版 CSV</button><button class="ghost" id="export-box-corrected-json">玩家修正版 JSON</button><button class="ghost" id="export-box-corrected-csv">玩家修正版 CSV</button></div>
+        </div>
+        <div class="history-summary" id="box-summary"></div>
+        <div class="box-group"><h3>角色</h3><div id="box-characters" class="box-list"></div></div>
+        <div class="box-group"><h3>命轮</h3><div id="box-wheels" class="box-list"></div></div>
+      </section>
       <section class="view" id="rules">
         <div class="page-title"><div><span class="kicker">PROBABILITY & TRUST</span><h1>概率与保底</h1><p>不同服务器与卡池可能使用不同规则。当前数值是可修改的参考假设，不会伪装成已核实的官方公示。</p></div></div>
         <div class="rules-grid"><section class="panel rule-panel"><span class="kicker">REFERENCE PROFILE</span><h3>用于欧非估计的参考值</h3><div class="field-grid"><label>SSR 单抽基础概率 <span>%</span><input id="base-rate" type="number" min="0.01" max="100" step="0.01"></label><label>SSR 综合概率 <span>%</span><input id="combined-rate" type="number" min="0.01" max="100" step="0.01"></label><label>SSR 硬保底 <span>抽</span><input id="hard-pity" type="number" min="1" max="500" step="1"></label><label>当期 UP 概率 <span>%</span><input id="up-rate" type="number" min="0" max="100" step="1"></label></div><button class="primary" id="save-rules">保存本机设置</button><p class="source-note">默认示例采用社区常见的 3.02% / 30 抽 / 50% 描述；请按游戏内当前卡池的“概率详情”核对后调整。综合概率未用于欧非模型；模型仅用基础概率和硬保底。</p></section><section class="panel"><span class="kicker">HOW IT WORKS</span><h3>计算口径</h3><div class="explain"><b>SSR 抽数</b><p>同类别内两个 SSR 的历史序号之差；没有连续覆盖时显示“待补全”。</p><b>UP 与歪</b><p>工具自动比对历史类别、抽卡时间及同期卡池。只有唯一可匹配的卡池时才标记命中 UP 或“歪”；并行卡池及未识别的类别显示“无法确认”。可在抽卡记录页用下拉框手动指定。</p><b>欧非</b><p>以可计算的 SSR 间隔与参考概率模型的期望抽数比较。少于 5 次有效 SSR 间隔时显示“样本不足”。这是娱乐性描述，不能证明未来结果。</p><b>成就标签</b><p>按相同时间戳把同一批抽卡归为一组，统计双黄 / 五连三金 / 连闪 / 保底之王等表现；仅供娱乐，与游戏内判定无关。</p></div></section></div>
         <div class="profile-panel"><section class="panel rule-panel"><span class="kicker">PLAYER PROFILE · 可选</span><h3>昵称与 UID</h3><div class="profile-row"><label>昵称<input id="profile-nickname" placeholder="展示在分享图和导出文件里，可留空"></label><label>游戏内 UID<input id="profile-uid" placeholder="仅你自己填写，可留空"></label></div><button class="primary" id="save-profile">保存资料</button><p class="source-note">昵称和 UID 完全由你手动填写、只保存在本机浏览器，仅在你主动导出 JSON / 生成分享图时才会写入文件，用于欧非榜单辨认是谁的成绩；工具不会从账号或游戏进程里读取这两项。</p></section></div>
+        <div class="profile-panel"><section class="panel rule-panel"><span class="kicker">MY BOX · 叠位上限</span><h3>各稀有度的启灵/叠位上限</h3><div class="field-grid"><label>SSR 上限<input id="box-cap-SSR" type="number" min="0" max="99" step="1"></label><label>SR 上限<input id="box-cap-SR" type="number" min="0" max="99" step="1"></label><label>R 上限<input id="box-cap-R" type="number" min="0" max="99" step="1"></label><label>Genesis 上限<input id="box-cap-Genesis" type="number" min="0" max="99" step="1"></label></div><button class="primary" id="save-box-caps">保存上限设置</button><p class="source-note">默认值（SSR/SR/R 各 6、Genesis 1）是估计值，不是经过核实的官方数据；请按你了解的实际游戏规则修改。改了之后「我的 Box」页的自动叠位会重新按新上限计算。</p></section></div>
       </section>
       <footer>银钥档案 · 本地抽卡分析工具 <span>·</span> 游戏素材归原权利人所有 <span>·</span> 非官方项目</footer>
     </main>
