@@ -17,7 +17,9 @@ jobs:
         with:
           python-version: "3.11"
       - name: Build release package
-        run: python build_release.py
+        run: |
+          python sync_skeydb_assets.py
+          python build_release.py
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:

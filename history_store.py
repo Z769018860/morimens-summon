@@ -33,7 +33,50 @@ def connect(path: Path) -> sqlite3.Connection:
         item_tid INTEGER NOT NULL, name TEXT NOT NULL, timestamp INTEGER NOT NULL,
         PRIMARY KEY (history_type, ordinal)
     )""")
+    db.execute("""CREATE TABLE IF NOT EXISTS account_metadata (
+        key TEXT PRIMARY KEY, value TEXT NOT NULL
+    )""")
     return db
+
+
+def account_uid(db: sqlite3.Connection) -> str | None:
+    row = db.execute("SELECT value FROM account_metadata WHERE key='uid'").fetchone()
+    return row[0] if row else None
+
+
+def save_account_uid(db: sqlite3.Connection, uid: str) -> None:
+    if not uid.isdecimal() or int(uid) <= 0:
+        raise ValueError("History playerId 无效")
+    existing = account_uid(db)
+    if existing and existing != uid:
+        raise ValueError("History playerId 与已保存账号不一致；已停止写入")
+    db.execute("INSERT OR IGNORE INTO account_metadata(key,value) VALUES ('uid',?)", (uid,))
+
+
+def recover_uid_from_raw(db: sqlite3.Connection, path: Path) -> str | None:
+    """Backfill UID from older saved pages only when several rows match the DB."""
+    if account_uid(db) or not path.is_file():
+        return account_uid(db)
+    source = json.loads(path.read_text(encoding="utf-8"))
+    if source.get("method") != "Summon.QuerySummonHistory":
+        return None
+    matches: dict[str, int] = {}
+    for key, body in source.get("pages", {}).items():
+        history_type, page = map(int, key.split("/"))
+        for ordinal, raw in zip(page_ordinals(body["count"], page), body.get("records", [])):
+            uid = raw.get("playerId")
+            if type(uid) is not int or uid <= 0:
+                continue
+            row = db.execute("""SELECT item_tid,name,timestamp FROM history_records
+                WHERE history_type=? AND ordinal=?""", (history_type, ordinal)).fetchone()
+            if row and tuple(row) == normalize(raw, history_type):
+                matches[str(uid)] = matches.get(str(uid), 0) + 1
+    if len(matches) == 1 and next(iter(matches.values())) >= 3:
+        uid = next(iter(matches))
+        with db:
+            save_account_uid(db, uid)
+        return uid
+    return None
 
 
 def normalize(raw: dict, history_type: int) -> tuple[int, str, int]:
@@ -63,10 +106,16 @@ def ingest_page(db: sqlite3.Connection, history_type: int, page: int, body: dict
     if len(raw_records) != len(ordinals):
         raise ValueError(f"History {history_type}/{page} 返回 {len(raw_records)} 条，预期 {len(ordinals)} 条")
     records = [normalize(raw, history_type) for raw in raw_records]
+    uids = {str(raw["playerId"]) for raw in raw_records
+            if type(raw.get("playerId")) is int and raw["playerId"] > 0}
+    if len(uids) > 1:
+        raise ValueError("History 页面包含多个 playerId；已停止写入")
     prior = db.execute("SELECT latest_count FROM history_types WHERE history_type=?", (history_type,)).fetchone()
     if prior and count < prior[0]:
         raise ValueError(f"History 类别 {history_type} 总数从 {prior[0]} 降到 {count}；停止同步以保留旧记录")
     with db:
+        if uids:
+            save_account_uid(db, next(iter(uids)))
         for ordinal, record in zip(ordinals, records):
             existing = db.execute("""SELECT item_tid,name,timestamp FROM history_records
                 WHERE history_type=? AND ordinal=?""", (history_type, ordinal)).fetchone()

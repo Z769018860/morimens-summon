@@ -1,11 +1,10 @@
-"""Build local image cache and a public catalog that links to pinned upstream art."""
+"""Build local image files and catalogs from a recorded SKeyDB revision."""
 
 from __future__ import annotations
 
 import json
 import shutil
 import subprocess
-from urllib.parse import quote
 from pathlib import Path
 
 
@@ -83,8 +82,8 @@ def main() -> None:
                            "icon": icon, "card": card_url or icon})
         public_characters.append({"id": item["id"], "name": character_names.get(item["id"], item["name"]),
                                   "englishName": item["name"], "rarity": item.get("rarity"),
-                                  "_portrait": art.relative_to(UPSTREAM).as_posix() if art.is_file() else None,
-                                  "_card": card.relative_to(UPSTREAM).as_posix() if card.is_file() else None})
+                                  "icon": f"assets/characters/{item['id']}.webp" if art.is_file() else None,
+                                  "card": f"assets/cards/{item['id']}.webp" if card.is_file() else None})
     wheel_items = []
     for item in wheels:
         asset_id = (item.get("assets") or {}).get("icon")
@@ -102,7 +101,7 @@ def main() -> None:
                             "englishName": item["name"], "rarity": item.get("rarity"), "icon": icon})
         public_wheels.append({"id": item["id"], "name": wheel_names.get(item["id"], item["name"]),
                               "englishName": item["name"], "rarity": item.get("rarity"),
-                              "_icon": art.relative_to(UPSTREAM).as_posix() if art and art.is_file() else None})
+                              "icon": f"assets/wheels/{item['id']}.webp" if art and art.is_file() else None})
     for category, keep in retained.items():
         folder = (ASSETS / category).resolve()
         if not folder.is_relative_to(ASSETS.resolve()):
@@ -126,17 +125,8 @@ def main() -> None:
     CATALOG.write_text(json.dumps({"source": SOURCE, "revision": revision,
                                    "characters": characters, "wheels": wheel_items,
                                    "banners": banners}, ensure_ascii=False), encoding="utf-8")
-    # The public page links to the upstream art at a pinned revision. No game
-    # image bytes are copied into this repository or its downloadable archive.
-    base = f"https://raw.githubusercontent.com/dansa/SKeyDB/{revision}/"
     for entry in public_characters:
-        entry["icon"] = base + quote(entry.pop("_portrait")) if entry["_portrait"] else None
-        entry.pop("_portrait", None)
-        entry["card"] = base + quote(entry.pop("_card")) if entry["_card"] else entry["icon"]
-        entry.pop("_card", None)
-    for entry in public_wheels:
-        entry["icon"] = base + quote(entry.pop("_icon")) if entry["_icon"] else None
-        entry.pop("_icon", None)
+        entry["card"] = entry["card"] or entry["icon"]
     PUBLIC_CATALOG.write_text(json.dumps({"source": SOURCE, "revision": revision,
                                           "characters": public_characters, "wheels": public_wheels,
                                           "banners": banners}, ensure_ascii=False), encoding="utf-8")

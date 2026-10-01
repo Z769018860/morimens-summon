@@ -42,6 +42,7 @@ class UpdateTests(unittest.TestCase):
                 db.close()
             data = app.payload(db_path=path)
         self.assertTrue(data["records"])
+        self.assertEqual(data["uid"], "987654321")
         self.assertEqual(set(data["records"][0]),
                          {"history_type", "ordinal", "item_tid", "name", "timestamp"})
 

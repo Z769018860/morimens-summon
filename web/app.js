@@ -6,6 +6,9 @@ let data = {records:[],coverage:[],catalog:{characters:[],wheels:[],banners:[]}}
 let catalog = new Map(), selectedType='all', visibleCount=40, search='', updateTimer=null;
 let rules = {...DEFAULT_RULES,...JSON.parse(localStorage.getItem('morimens-rules') || '{}')};
 let profile = {uid:'',nickname:'',...JSON.parse(localStorage.getItem('morimens-profile') || '{}')};
+function renderIdentity(){
+  $('player-identity').textContent=`${profile.nickname||'昵称未填写'} · ${profile.uid?`UID ${profile.uid}`:'UID 待读取'}`;
+}
 let excluded = new Set(JSON.parse(localStorage.getItem('morimens-excluded') || '[]'));
 let overrides = JSON.parse(localStorage.getItem('morimens-overrides') || '{}');
 // User-defined banners supplement the pinned SKeyDB calendar when concurrent
@@ -261,6 +264,7 @@ function download(blob,name){const url=URL.createObjectURL(blob),a=document.crea
 function structured(){
   const intervals=allIntervals();
   return {schemaVersion:5,generatedAt:new Date().toISOString(),source:'Summon.QuerySummonHistory',timeZone:'Asia/Shanghai',
+    uid:profile.uid||null,nickname:profile.nickname||null,
     player:{uid:profile.uid||null,nickname:profile.nickname||null},
     coverage:data.coverage,rules:{...rules,verified:false},
     achievementTags:computeAchievements().map(a=>a.label),
@@ -282,13 +286,13 @@ function boxRows(){
 // \u7eaf\u62bd\u5361\u6c47\u603b\u7248\uff1a\u53ea\u542b\u4ece\u62bd\u5361\u8bb0\u5f55\u80fd\u7b97\u51fa\u6765\u7684\u4e1c\u897f\uff0c\u4e0d\u542b\u4efb\u4f55\u624b\u52a8\u4fee\u6b63\u3002
 function exportBoxSummary(){
   const rows=boxRows().map(({name,kind,rarity,pulls,cap,autoStack})=>({name,kind,rarity,pulls,cap,stack:autoStack}));
-  const payload={schemaVersion:1,type:'box-summary',generatedAt:new Date().toISOString(),player:{uid:profile.uid||null,nickname:profile.nickname||null},caps:boxCaps,items:rows};
+  const payload={schemaVersion:1,type:'box-summary',generatedAt:new Date().toISOString(),uid:profile.uid||null,nickname:profile.nickname||null,player:{uid:profile.uid||null,nickname:profile.nickname||null},caps:boxCaps,items:rows};
   download(new Blob([JSON.stringify(payload,null,2)],{type:'application/json;charset=utf-8'}),`morimens-box-summary${profile.nickname?'-'+profile.nickname:''}.json`);
 }
 // \u73a9\u5bb6\u4fee\u6b63\u7248\uff1a\u624b\u52a8\u53e0\u4f4d/\u7b49\u7ea7\u8986\u76d6\u81ea\u52a8\u503c\uff08\u672a\u624b\u52a8\u4fee\u6539\u7684\u9879\u76ee\u4ecd\u7528\u81ea\u52a8\u53e0\u4f4d\uff0c\u7b49\u7ea7\u7559\u7a7a\uff09\u3002
 function exportBoxCorrected(){
   const rows=boxRows().map(({name,kind,rarity,pulls,cap,autoStack,manualStack,manualLevel})=>({name,kind,rarity,pulls,cap,autoStack,stack:manualStack??autoStack,level:manualLevel??null,keyStages:box[name]?.keyStages||[],corrected:manualStack!=null||manualLevel!=null}));
-  const payload={schemaVersion:1,type:'box-corrected',generatedAt:new Date().toISOString(),player:{uid:profile.uid||null,nickname:profile.nickname||null},caps:boxCaps,items:rows};
+  const payload={schemaVersion:1,type:'box-corrected',generatedAt:new Date().toISOString(),uid:profile.uid||null,nickname:profile.nickname||null,player:{uid:profile.uid||null,nickname:profile.nickname||null},caps:boxCaps,items:rows};
   download(new Blob([JSON.stringify(payload,null,2)],{type:'application/json;charset=utf-8'}),`morimens-box-corrected${profile.nickname?'-'+profile.nickname:''}.json`);
 }
 function exportBoxCSV(corrected){
@@ -365,6 +369,15 @@ async function shareImage(){
   canvas.toBlob(blob=>blob&&download(blob,`morimens-summon-share${profile.nickname?'-'+profile.nickname:''}.png`),'image/png');
 }
 function applyLoadedData(loaded){
+  const incomingUid=String(loaded.uid||loaded.player?.uid||'').trim();
+  const incomingNickname=String(loaded.nickname||loaded.player?.nickname||'').trim();
+  if(incomingUid&&incomingUid!==profile.uid){
+    profile={uid:incomingUid,nickname:incomingNickname};
+    localStorage.setItem('morimens-profile',JSON.stringify(profile));
+  }else if(incomingNickname&&!profile.nickname){
+    profile.nickname=incomingNickname;
+    localStorage.setItem('morimens-profile',JSON.stringify(profile));
+  }
   data={catalog:{characters:[],wheels:[],banners:[]},...loaded};
   if(publicCatalog){
     const supplied=data.catalog||{};
@@ -405,6 +418,7 @@ function applyLoadedData(loaded){
   }
   mergeBox(loaded.box);
   updateBoxFromRecords();
+  renderIdentity();
 }
 async function refresh(){
   if(IMPORT_MODE){
@@ -455,7 +469,7 @@ async function startUpdate(mode='now'){
 document.addEventListener('click',e=>{const nav=e.target.closest('[data-view]');if(nav)showView(nav.dataset.view);const target=e.target.closest('[data-target]');if(target)showView(target.dataset.target);const tab=e.target.closest('[data-type]');if(tab){selectedType=tab.dataset.type;visibleCount=40;renderHistory()}});
 $('refresh').onclick=openUpdate;$('start-update').onclick=()=>startUpdate();$('wait-update').onclick=()=>startUpdate('wait');$('close-update').onclick=()=>{$('update-modal').hidden=true};$('cancel-update').onclick=()=>{$('update-modal').hidden=true};$('go-history').onclick=()=>showView('history');$('share').onclick=shareImage;$('export-json').onclick=exportJSON;$('export-csv').onclick=exportCSV;$('load-more').onclick=()=>{visibleCount+=50;renderHistory()};$('search').oninput=e=>{search=e.target.value.trim().toLowerCase();visibleCount=40;renderHistory()};
 $('save-rules').onclick=()=>{const next={base:Number($('base-rate').value),combined:Number($('combined-rate').value),pity:Number($('hard-pity').value),up:Number($('up-rate').value)};if(!(next.base>0&&next.base<=100&&next.combined>0&&next.combined<=100&&Number.isInteger(next.pity)&&next.pity>0&&next.up>=0&&next.up<=100)){alert('请填写有效的概率与保底抽数');return}rules=next;localStorage.setItem('morimens-rules',JSON.stringify(rules));renderOverview();alert('参考规则已保存在本机浏览器')};
-$('save-profile').onclick=()=>{profile={uid:$('profile-uid').value.trim(),nickname:$('profile-nickname').value.trim()};localStorage.setItem('morimens-profile',JSON.stringify(profile));alert('昵称/UID 已保存在本机浏览器，仅在你导出 JSON 或生成分享图时附带，不会上传。')};
+$('save-profile').onclick=()=>{profile={uid:$('profile-uid').value.trim(),nickname:$('profile-nickname').value.trim()};localStorage.setItem('morimens-profile',JSON.stringify(profile));renderIdentity();alert('昵称/UID 已保存在本机浏览器，并将在你导出 JSON 或生成分享图时附带。')};
 document.addEventListener('change',e=>{
   const toggle=e.target.closest('.include-toggle');
   if(toggle){const key=toggle.dataset.key;if(toggle.checked)excluded.delete(key);else excluded.add(key);saveExcluded();renderOverview();renderHistory();return}

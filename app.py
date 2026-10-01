@@ -107,12 +107,14 @@ def update_worker(wait_auth: bool = False) -> None:
 
 def payload(db_path: Path = DB, catalog_path: Path = CATALOG) -> dict:
     with closing(history_store.connect(db_path)) as db:
+        uid = history_store.account_uid(db) or history_store.recover_uid_from_raw(
+            db, db_path.parent / "full_history_raw.json")
         records = [dict(row) for row in db.execute("""SELECT history_type,ordinal,item_tid,name,timestamp
             FROM history_records ORDER BY history_type,ordinal DESC""")]
         coverage = history_store.coverage(db)
     catalog = json.loads(catalog_path.read_text(encoding="utf-8")) if catalog_path.exists() else {
         "characters": [], "wheels": [], "banners": [], "source": None}
-    return {"records": records, "coverage": coverage, "catalog": catalog,
+    return {"uid": uid, "records": records, "coverage": coverage, "catalog": catalog,
             "dataSource": "Summon.QuerySummonHistory", "timeZone": "Asia/Shanghai"}
 
 

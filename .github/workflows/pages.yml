@@ -32,6 +32,7 @@ jobs:
           python-version: "3.11"
       - name: Build the downloadable tool zip and place it alongside the site
         run: |
+          python sync_skeydb_assets.py
           python build_release.py
           mkdir -p web/downloads
           cp dist/morimens-summon-tool.zip web/downloads/morimens-summon-tool.zip

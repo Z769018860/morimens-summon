@@ -1,12 +1,8 @@
-"""Package the local analysis tool (app.py + web UI + helper scripts) into a
-distributable zip for GitHub Releases.
-
-The package includes an entity-to-image URL catalog, not game image bytes.
-start.cmd can cache images locally from SKeyDB on first run.
-"""
+"""Package the local analysis tool, catalog and image files into one zip."""
 
 from __future__ import annotations
 
+import json
 import zipfile
 from pathlib import Path
 
@@ -23,6 +19,7 @@ INCLUDE_FILES = [
     "start.cmd",
     "requirements.txt",
     "README.md",
+    "data/local/catalog.json",
 ]
 INCLUDE_DIRS = [
     "web",
@@ -37,12 +34,21 @@ EXCLUDE_SUFFIXES = {".pyc"}
 def add_file(zf: zipfile.ZipFile, path: Path) -> None:
     if path.name in EXCLUDE_NAMES or path.suffix in EXCLUDE_SUFFIXES:
         return
-    if path.is_relative_to(ROOT / "web" / "assets") or path.is_relative_to(ROOT / "web" / "downloads"):
+    if path.is_relative_to(ROOT / "web" / "downloads"):
         return
     zf.write(path, path.relative_to(ROOT))
 
 
 def main() -> None:
+    if not (ROOT / "data/local/catalog.json").is_file() or not any((ROOT / "web/assets").rglob("*.webp")):
+        raise SystemExit("缺少图片目录；请先运行 python sync_skeydb_assets.py")
+    for catalog_path in (ROOT / "data/local/catalog.json", ROOT / "web/catalog.json"):
+        catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+        for item in catalog["characters"] + catalog["wheels"]:
+            for field in ("icon", "card"):
+                url = item.get(field)
+                if url and not (ROOT / "web" / url.lstrip("/")).is_file():
+                    raise SystemExit(f"图片目录缺失：{item['name']} {field} {url}")
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(OUTPUT, "w", zipfile.ZIP_DEFLATED) as zf:
         for name in INCLUDE_FILES:

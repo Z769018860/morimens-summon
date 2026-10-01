@@ -41,6 +41,14 @@ class HistoryStoreTests(unittest.TestCase):
             store.ingest_page(self.db, 2, 1, {"count": 5, "records": altered})
         self.assertEqual(self.db.execute("SELECT item_tid FROM history_records WHERE ordinal=4").fetchone()[0], 100)
 
+    def test_uid_is_saved_and_mixed_accounts_are_rejected(self):
+        store.ingest_page(self.db, 2, 1, {"count": 1, "records": [record(100, 500)]})
+        self.assertEqual(store.account_uid(self.db), "123")
+        other = {**record(101, 501), "playerId": 456}
+        with self.assertRaisesRegex(ValueError, "账号不一致"):
+            store.ingest_page(self.db, 2, 1, {"count": 1, "records": [other]})
+        self.assertEqual(store.account_uid(self.db), "123")
+
     def test_empty_category(self):
         store.ingest_page(self.db, 17, 1, {"count": 0})
         self.assertEqual(store.coverage(self.db)[0]["complete"], True)
