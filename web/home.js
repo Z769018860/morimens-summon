@@ -15,7 +15,7 @@ function readAndGo(file) {
       const parsed = JSON.parse(reader.result);
       if (!Array.isArray(parsed.records)) throw new Error('缺少 records 字段');
       sessionStorage.setItem('morimens-import', reader.result);
-      location.href = '/analyzer.html?import=1';
+      location.href = 'analyzer.html?import=1';
     } catch (e) {
       err.textContent = `这不是一个有效的抽卡记录 JSON：${e.message}`;
     }
