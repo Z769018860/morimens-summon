@@ -79,6 +79,12 @@ function allIntervals(){const out=new Map();for(const c of data.coverage)for(con
 function expectedPity(){const p=Number(rules.base)/100,n=Number(rules.pity);return p>0&&n>0?(1-Math.pow(1-p,n))/p:null}
 function luckLabel(intervals){const values=[...intervals.values()].filter(v=>v!==null);if(values.length<5)return {label:'样本不足',detail:`${values.length} 次有效 SSR 间隔`};const avg=values.reduce((a,b)=>a+b,0)/values.length,expected=expectedPity();if(!expected)return {label:'规则待设置',detail:`平均 ${avg.toFixed(1)} 抽`};return {label:avg<=expected*.8?'偏欧':avg>=expected*1.2?'偏非':'正常波动',detail:`平均 ${avg.toFixed(1)} 抽 · 参考期望 ${expected.toFixed(1)} 抽`}}
 function asset(r){return metaOf(r).icon||''}
+// No game artwork ships with this tool (not ours to redistribute — see
+// sync_skeydb_assets.py), so unmatched items get an original badge instead of
+// a bare placeholder glyph: the item's own initial on a rarity-coded gradient.
+const RARITY_CLASS={SSR:'r-ssr',SR:'r-sr',R:'r-r',Genesis:'r-genesis'};
+function rarityClass(rarity){return RARITY_CLASS[rarity]||'r-unknown'}
+function initials(name){return [...String(name||'?')].slice(0,2).join('')}
 // Multi-pull batches (5/10 连) all land with the exact same server timestamp;
 // grouping on (history_type, timestamp) is how other summon tools reconstruct
 // draw sessions when the RPC itself doesn't expose a pull-count field.
@@ -114,7 +120,7 @@ function computeAchievements(){
   if(latest!==null&&latest>=Math.round(pity*1.3))tags.push({key:'unlucky-alert',label:'非酋警报',icon:'🌧️',detail:`最惨一次抽了 ${latest} 抽才出货`});
   return tags;
 }
-function portrait(r){const src=asset(r);return src?`<img src="${html(src)}" alt="">`:`<div class="placeholder">✦</div>`}
+function portrait(r){const src=asset(r);return src?`<img src="${html(src)}" alt="">`:`<div class="placeholder ${rarityClass(metaOf(r).rarity)}">${html(initials(r.name))}</div>`}
 function renderOverview(){
   const rows=data.records.filter(isIncluded),ssrs=rows.filter(isSSR),intervals=allIntervals(),luck=luckLabel(intervals),complete=data.coverage.filter(c=>c.complete).length;
   const achievements=computeAchievements();
@@ -175,6 +181,16 @@ function structured(){
 function exportJSON(){download(new Blob([JSON.stringify(structured(),null,2)],{type:'application/json;charset=utf-8'}),`morimens-summon-history${profile.nickname?'-'+profile.nickname:''}.json`)}
 function exportCSV(){const s=structured(),fields=['history_type','ordinal','timestamp','item_tid','name','rarity','kind','pullsSinceSSR','bannerId','bannerAssignment','upStatus','excluded'];const quote=v=>'"'+String(v??'').replaceAll('"','""')+'"';download(new Blob(['\ufeff'+[fields.join(','),...s.records.map(r=>fields.map(f=>quote(r[f])).join(','))].join('\r\n')],{type:'text/csv;charset=utf-8'}),'morimens-summon-history.csv')}
 function roundRect(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath()}
+const RARITY_FILL={SSR:['#f6dfa0','#c99d4e'],SR:['#d7def0','#8fa3c7'],R:['#aeb9c2','#798591'],Genesis:['#f2b4e0','#6fd9f0']};
+// Canvas counterpart of the .placeholder badge CSS, for the same no-artwork reason.
+function drawBadge(c,x,y,size,rarity,name){
+  const [c1,c2]=RARITY_FILL[rarity]||['#3a4350','#3a4350'];
+  const g=c.createLinearGradient(x,y,x+size,y+size);g.addColorStop(0,c1);g.addColorStop(1,c2);
+  roundRect(c,x,y,size,size,size*.14);c.fillStyle=g;c.fill();
+  c.fillStyle=RARITY_FILL[rarity]?'#1a1510':'#aeb7c2';c.font=`bold ${Math.round(size*.4)}px sans-serif`;
+  c.textAlign='center';c.textBaseline='middle';c.fillText(initials(name),x+size/2,y+size/2+1);
+  c.textAlign='left';c.textBaseline='alphabetic';
+}
 async function shareImage(){
   const W=1200,H=1760,canvas=document.createElement('canvas');canvas.width=W;canvas.height=H;const c=canvas.getContext('2d');
   const gradient=c.createLinearGradient(0,0,W,H);gradient.addColorStop(0,'#1c2834');gradient.addColorStop(.55,'#121823');gradient.addColorStop(1,'#372f35');c.fillStyle=gradient;c.fillRect(0,0,W,H);
@@ -200,7 +216,7 @@ async function shareImage(){
   c.fillStyle='#f3e8d5';c.font='bold 28px sans-serif';c.fillText('类别覆盖',72,ay+18);let y=ay+70;
   for(const item of data.coverage){c.fillStyle='#adb8c3';c.font='22px sans-serif';c.fillText(nameFor(item.history_type),72,y);c.textAlign='right';c.fillStyle=item.complete?'#b6dbbd':'#dbbf8b';c.fillText(`${item.known} / ${item.reported_total}${item.complete?'  完整':'  缺页'}`,W-72,y);c.textAlign='left';y+=48}
   y+=36;c.fillStyle='#f3e8d5';c.font='bold 28px sans-serif';c.fillText('最近的 SSR',72,y);y+=40;
-  for(const r of ssrs.sort((a,b)=>b.timestamp-a.timestamp).slice(0,6)){const icon=asset(r);if(icon){try{const img=new Image();img.src=icon;await img.decode();roundRect(c,72,y,70,70,10);c.save();c.clip();c.drawImage(img,72,y,70,70);c.restore()}catch{}}
+  for(const r of ssrs.sort((a,b)=>b.timestamp-a.timestamp).slice(0,6)){const icon=asset(r);if(icon){try{const img=new Image();img.src=icon;await img.decode();roundRect(c,72,y,70,70,10);c.save();c.clip();c.drawImage(img,72,y,70,70);c.restore()}catch{drawBadge(c,72,y,70,metaOf(r).rarity,r.name)}}else{drawBadge(c,72,y,70,metaOf(r).rarity,r.name)}
     c.fillStyle='#eef1f4';c.font='bold 23px sans-serif';c.fillText(r.name,162,y+27);
     const n=intervals.get(keyOf(r));
     c.fillStyle='#a8b2be';c.font='18px sans-serif';c.fillText(`${nameFor(r.history_type)} · ${dateOf(r.timestamp)} · ${upLabel(upState(r))}${n!=null?` · ${n} 抽出货`:''}`,162,y+54);
