@@ -1,0 +1,11 @@
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.env*
+*.pcap
+*.pcapng
+*session*key*
+private/
+data/local/
+web/assets/
