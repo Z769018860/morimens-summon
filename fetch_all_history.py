@@ -21,6 +21,7 @@ import msgpack
 import sympy
 
 import decode_summon_capture as decode
+import capture_routes
 import history_store as store
 
 
@@ -39,7 +40,7 @@ def load_research(name: str):
 
 def captured_logins(path: Path, reference, pilot):
     found = {}
-    for _, segments in reference.read_flows(path, port=12887).items():
+    for _, segments in capture_routes.read_game_flows(path, reference).items():
         client, cgap = reference.reassemble(segments["c2s"])
         server, sgap = reference.reassemble(segments["s2c"])
         ch, sh = reference.route(client, True), reference.route(server, False)
@@ -63,6 +64,9 @@ def captured_logins(path: Path, reference, pilot):
     gateway = found.get("operate-global-game")
     mains = [(target, messages) for target, messages in found.items() if target != "operate-global-game"]
     if gateway is None or not mains:
+        summary = capture_routes.transport_summary(path, reference)
+        if summary["flows"]["tls"] and not summary["flows"]["sconn"]:
+            raise RuntimeError("TLS_PROXY_DETECTED: 当前采集到的是 TLS 通道，无法直接解析 Sconn 登录握手")
         raise RuntimeError("当前抓包缺少完整的 gateway/main 登录序列")
     return gateway, mains[-1]
 

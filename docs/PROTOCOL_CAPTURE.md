@@ -1,5 +1,31 @@
 # 通讯数据自动获取：2026-10-01 实测结果
 
+## 连接模式诊断与下一次登录采集
+
+先运行 `python connection_diagnostics.py`，查看游戏实际连接的地址、端口和父进程。
+采集程序 `capture_login_passive.py` 默认根据 `Morimens.exe` 拥有的 TCP 连接筛选数据，
+可用于直连端口、加速器本地转发端口及透明 TCP 代理端口。它必须在登录握手之前以管理员权限启动；
+`--port` 可重复指定已知端口，以降低连接发现与首包之间的竞态。
+输出的 pcap 含登录材料，只保存在 `data/local`，不得上传或提交。
+
+```powershell
+python capture_login_passive.py --output data/local/current_login.pcap --ready-file data/local/current_login.ready --stop-file data/local/current_login.stop --seconds 600 --port 8443 --port 12887
+```
+
+看到 `current_login.ready` 后正常重新登录一次。完成后创建 `current_login.stop` 终止采集，
+再对照握手路由、认证字段形态及网关回复；只报告长度和状态，不打印票据。
+仅看到 Steam 为父进程不足以判断是否使用 Steam 认证；非 Steam 启动需要实际登录样本。
+HTTP CONNECT、SOCKS 或其他代理若保持游戏 Sconn 流为明文 TCP，可按握手识别；
+若额外加密、改写或复用流量，当前解析器不能保证兼容，需要针对该模式验证。
+
+2026-10-02 本机检查：运行中的游戏由 `steam.exe` 启动，当前连接指向本地加速器的
+`12887` 端口。一次新进程启动期间的短时被动采集识别到 30 条 TLS 起始流，
+没有识别到完整的 Sconn 握手；旧样本中的 2 条游戏登录流则可以识别。
+由于这次采集在确认游戏进程重启后很快结束，不能断定完整登录过程始终采用 TLS，
+也不能由此推断直连或非 Steam 启动的结果。当前更新器会把纯 TLS 采集明确标为
+`TLS_PROXY_DETECTED`，不再误报为未登录。下一次端到端验证应持续到游戏真正完成登录，
+并分别核对直连与加速器路径；不要仅以父进程判断票据来源。
+
 ## 已确认的抽卡历史接口
 
 本机被动抓包经 TCP 重组、Sconn 握手、DH/RC4、LZ4、sproto 和 MessagePack 解码后，恢复出真实 RPC：

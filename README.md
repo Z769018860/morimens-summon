@@ -32,6 +32,7 @@ Windows 下双击 [start.cmd](start.cmd)，或运行 `python app.py` 后打开 `
 ## 当前事实
 
 - 游戏抽卡历史走登录后的 `:8443` 自定义二进制通道；本机加速器转发时可从 `:12887` 捕获对应业务流。传输层已验证为 Sconn、会话密钥、RC4、LZ4、sproto、MessagePack 组合。
+- 采集实验现可按 `Morimens.exe` 的实际 TCP 连接自动识别目标，不再把 `12887` 写死；登录抓包的离线解析也按 Sconn 握手识别流向。运行 `python connection_diagnostics.py` 可查看当前连接和是否由 Steam 作为父进程启动。父进程并不能证明认证方式；直连、加速器及透明 TCP 转发仍须分别完成登录后的端到端验证。若代理在游戏通讯外再套 TLS，现有解析器无法读取内层握手。
 - 已确认 `type2RecordQueue`、保底计数等本地 Summon 状态字段，以及 `rewardList[index].tid/num`。
 - 已解出真实 RPC `Summon.QuerySummonHistory`，请求参数为 `[历史类别, 页码]`，响应含总条数与逐条的 `itemTid`、`name`、`timestamp`、`type`。类别 2、1 已与角色、命轮历史画面交叉核对。
 - 2026-10-01 实测已取全类别 1 的 80/80 条和类别 2 的 203/203 条；类别 10 为 120/505、类别 16 为 5/55、类别 17 为 0/0。类别 10、16、17 的具体含义尚待核对。

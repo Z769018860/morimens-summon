@@ -80,6 +80,9 @@ def update_worker(wait_auth: bool = False) -> None:
             elif line.startswith("LOGIN_REJECTED"):
                 failure = "当前会话未通过游戏服务器验证。请重新登录游戏后再更新。"
                 phase, message = "failed", failure
+            elif "TLS_PROXY_DETECTED" in line:
+                failure = "检测到游戏通讯经过 TLS 加密通道；当前采集器无法直接解析登录握手。请查看连接诊断并尝试可用的直连模式。"
+                phase, message = "failed", failure
             elif line.startswith("HISTORY_COVERAGE"):
                 phase, message = "finish", "正在核对各类别的采集范围…"
             elif line.startswith(("INCREMENTAL_BOUNDARY", "WARNING:")):
