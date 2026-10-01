@@ -74,7 +74,7 @@ python fetch_all_history.py
 
 ## 打包发布
 
-`build_release.py` 把运行本地工具所需的文件（`app.py`、`web/`、`resources/`、`templates/`、`docs/`、CLI 脚本、`start.cmd`）打包成 `dist/morimens-summon-tool.zip`；打 `v*` 标签时 `.github/workflows/release.yml` 会自动构建并发布到 GitHub Releases，即主页「本地导出抽卡记录工具」按钮指向的下载地址。SKeyDB 的角色/卡池美术不随包分发（许可不允许），`start.cmd` 会在首次运行时自动从 SKeyDB 公开仓库拉取。
+`build_release.py` 把运行本地工具所需的文件（`app.py`、`web/`、`resources/`、`templates/`、`docs/`、CLI 脚本、`start.cmd`）打包成 `dist/morimens-summon-tool.zip`。两个地方会用到它：打 `v*` 标签时 `.github/workflows/release.yml` 自动构建并发布到 GitHub Releases（版本历史）；`.github/workflows/pages.yml` 每次部署 Pages 时也会构建一份放到 `web/downloads/morimens-summon-tool.zip`，主页「下载离线安装包」按钮直接链接到这份文件，不需要跳转到 GitHub。SKeyDB 的角色/卡池美术不随包分发（许可不允许），`start.cmd` 会在首次运行时自动从 SKeyDB 公开仓库拉取。
 
 ## 资料来源
 

@@ -23,7 +23,8 @@ WEB = ROOT / "web"
 DB = ROOT / "data" / "local" / "history.sqlite3"
 CATALOG = ROOT / "data" / "local" / "catalog.json"
 MIME = {".html": "text/html", ".css": "text/css", ".js": "text/javascript",
-        ".webp": "image/webp", ".svg": "image/svg+xml", ".png": "image/png"}
+        ".webp": "image/webp", ".svg": "image/svg+xml", ".png": "image/png",
+        ".zip": "application/zip"}
 UPDATE_LOCK = threading.Lock()
 UPDATE = {"running": False, "phase": "idle", "message": "尚未开始更新", "log": [], "result": None}
 

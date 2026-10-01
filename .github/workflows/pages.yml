@@ -27,6 +27,14 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build the downloadable tool zip and place it alongside the site
+        run: |
+          python build_release.py
+          mkdir -p web/downloads
+          cp dist/morimens-summon-tool.zip web/downloads/morimens-summon-tool.zip
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
