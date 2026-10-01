@@ -1,5 +1,6 @@
 @echo off
 cd /d "%~dp0"
+python -m pip install -q -r requirements.txt
 if not exist "data\local\catalog.json" (
   echo Preparing local SKeyDB art and names...
   python sync_skeydb_assets.py

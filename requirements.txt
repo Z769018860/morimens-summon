@@ -1,0 +1,5 @@
+# Dependencies for the local web tool (app.py / history_store.py / summon_cli.py
+# / sync_skeydb_assets.py). The separate capture/auto-update research scripts
+# have their own (heavier) dependency set and are intentionally not part of
+# the distributed release.
+psutil

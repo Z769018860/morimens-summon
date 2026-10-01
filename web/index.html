@@ -4,50 +4,69 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101523">
-  <title>银钥档案 · 忘却前夜抽卡分析</title>
+  <title>忘忘看报 · 忘却前夜抽卡分析</title>
   <link rel="stylesheet" href="/style.css">
 </head>
-<body>
-  <div class="shell">
-    <aside class="rail">
-      <div class="brand"><span class="brand-mark">✦</span><div><strong>银钥档案</strong><small>MORIMENS · SUMMON</small></div></div>
-      <nav aria-label="主导航">
-        <button class="nav active" data-view="overview"><span>◈</span> 总览</button>
-        <button class="nav" data-view="history"><span>▤</span> 抽卡记录</button>
-        <button class="nav" data-view="banners"><span>◷</span> 限时卡池</button>
-        <button class="nav" data-view="rules"><span>◇</span> 概率与规则</button>
+<body class="site-home">
+  <div class="site-shell">
+    <header class="site-top">
+      <div class="site-brand"><span class="brand-mark">✦</span><div><strong>忘忘看报</strong><small>忘却前夜 · 抽卡分析</small></div></div>
+      <nav class="site-nav">
+        <a href="/index.html" class="active">主页</a>
+        <a href="/leaderboard.html">欧非榜单</a>
+        <a href="/analyzer.html">数据分析</a>
+        <a href="/guide.html">使用教程</a>
       </nav>
-      <div class="rail-bottom"><span class="status-dot"></span> 本机数据 · 不上传账号记录<br><small id="sync-time">读取中…</small></div>
-    </aside>
-    <main>
-      <header class="topbar"><div class="crumb">资料室 <span>/</span> <b id="view-name">抽卡总览</b></div><div class="top-actions"><button class="ghost" id="refresh">↻ 自动更新</button><button class="primary" id="share">↗ 生成分享图</button></div></header>
-      <section class="view active" id="overview">
-        <div class="hero"><div class="hero-copy"><div class="eyebrow">PERSONAL SUMMON ARCHIVE <span class="line"></span> 2026</div><h1>每一次唤醒，<br><em>都有迹可循。</em></h1><p>读取真实通讯历史，按卡池保存。完整度、SSR 间隔与 UP 判断都标明依据。</p><div class="hero-actions"><button class="primary" id="go-history">查看抽卡记录 <span>→</span></button><span>数据仅存储在本机</span></div></div><div class="hero-art"><div class="halo"></div><img id="hero-portrait" alt="角色立绘"></div></div>
-        <div class="notice" id="coverage-notice"></div>
-        <div class="section-head"><div><span class="kicker">OVERVIEW</span><h2>你的抽卡概况</h2></div><span class="subtle">基于已采集记录 · 各类别独立统计</span></div>
-        <div class="stat-grid" id="stats"></div>
-        <div class="dashboard-grid"><section class="panel"><div class="panel-head"><div><span class="kicker">POOLS</span><h3>卡池分布</h3></div><button class="text-button" data-target="history">查看全部 →</button></div><div id="pool-bars"></div></section><section class="panel"><div class="panel-head"><div><span class="kicker">SSR TIMELINE</span><h3>最近的闪光</h3></div><span class="subtle">抽数按同类别计算</span></div><div id="recent-ssr"></div></section></div>
-        <div class="dashboard-grid"><section class="panel"><div class="panel-head"><div><span class="kicker">BY CATEGORY</span><h3>各类出货表现</h3></div><span class="subtle">已保存记录</span></div><div id="category-analysis"></div></section><section class="panel"><div class="panel-head"><div><span class="kicker">SSR INTERVALS</span><h3>出货抽数分布</h3></div><span class="subtle">仅连续记录</span></div><div id="interval-analysis"></div></section></div>
-      </section>
-      <section class="view" id="history">
-        <div class="page-title"><div><span class="kicker">SSR TIMELINE</span><h1>卡池出货时间线</h1><p>每条横杆代表两次 SSR 之间的抽数。SR 及其他记录只计入抽数，不在列表中展示。</p></div><div class="export-row"><button class="ghost" id="export-json">导出 JSON</button><button class="ghost" id="export-csv">导出 CSV</button></div></div>
-        <div class="filter-row"><div class="tabs" id="pool-tabs"></div><label class="search"><span>⌕</span><input id="search" placeholder="搜索 SSR 或编号"></label></div>
-        <div class="history-summary" id="history-summary"></div>
-        <div class="record-list" id="records"></div><button class="more" id="load-more">加载更多记录 ↓</button>
-      </section>
-      <section class="view" id="banners">
-        <div class="page-title"><div><span class="kicker">LIMITED BANNERS</span><h1>限时卡池日历</h1><p>SKeyDB 收录的活动时间（UTC+8）。同一时段可能有多个卡池，历史记录未包含确切卡池 ID。</p></div></div>
-        <div class="banner-grid" id="banner-grid"></div>
-        <p class="source-note">日程及图片来源：<a href="https://github.com/dansa/SKeyDB" target="_blank" rel="noreferrer">SKeyDB</a>。请以游戏内实际公告为准；图片仅供本地个人使用。</p>
-      </section>
-      <section class="view" id="rules">
-        <div class="page-title"><div><span class="kicker">PROBABILITY & TRUST</span><h1>概率与保底</h1><p>不同服务器与卡池可能使用不同规则。当前数值是可修改的参考假设，不会伪装成已核实的官方公示。</p></div></div>
-        <div class="rules-grid"><section class="panel rule-panel"><span class="kicker">REFERENCE PROFILE</span><h3>用于欧非估计的参考值</h3><div class="field-grid"><label>SSR 单抽基础概率 <span>%</span><input id="base-rate" type="number" min="0.01" max="100" step="0.01"></label><label>SSR 综合概率 <span>%</span><input id="combined-rate" type="number" min="0.01" max="100" step="0.01"></label><label>SSR 硬保底 <span>抽</span><input id="hard-pity" type="number" min="1" max="500" step="1"></label><label>当期 UP 概率 <span>%</span><input id="up-rate" type="number" min="0" max="100" step="1"></label></div><button class="primary" id="save-rules">保存本机设置</button><p class="source-note">默认示例采用社区常见的 3.02% / 30 抽 / 50% 描述；请按游戏内当前卡池的“概率详情”核对后调整。综合概率未用于欧非模型；模型仅用基础概率和硬保底。</p></section><section class="panel"><span class="kicker">HOW IT WORKS</span><h3>计算口径</h3><div class="explain"><b>SSR 抽数</b><p>同类别内两个 SSR 的历史序号之差；没有连续覆盖时显示“待补全”。</p><b>UP 与歪</b><p>工具自动比对历史类别、抽卡时间及同期卡池。只有唯一可匹配的卡池时才标记命中 UP 或“歪”；并行卡池及未识别的类别显示“无法确认”。</p><b>欧非</b><p>以可计算的 SSR 间隔与参考概率模型的期望抽数比较。少于 5 次有效 SSR 间隔时显示“样本不足”。这是娱乐性描述，不能证明未来结果。</p></div></section></div>
-      </section>
-      <footer>银钥档案 · 本地抽卡分析工具 <span>·</span> 游戏素材归原权利人所有 <span>·</span> 非官方项目</footer>
-    </main>
+    </header>
+
+    <section class="site-hero">
+      <div class="eyebrow">忘却前夜 · 非官方社区工具</div>
+      <h1>把每一次唤醒，<br><em>变成看得懂的报表。</em></h1>
+      <p>本地导出抽卡记录、生成个人分析报告、和朋友比比欧非——所有数据处理都在你自己的浏览器或电脑里完成，不会读取你的账号资料，也不会把抽卡记录上传到任何服务器。</p>
+    </section>
+
+    <div class="card-grid">
+      <article class="entry-card">
+        <div class="entry-icon">⇩</div>
+        <h3>本地导出抽卡记录工具</h3>
+        <p>Windows 本地小工具：读取你自己游戏客户端展示的抽卡历史并整理成 JSON / CSV。下载仓库最新发布的离线安装包，解压后按《使用教程》操作即可，无需账号密码。</p>
+        <a class="entry-action" id="release-link" href="https://github.com/Z769018860/morimens-summon/releases/latest" target="_blank" rel="noreferrer">前往最新 Release ↗</a>
+      </article>
+      <article class="entry-card">
+        <div class="entry-icon">☲</div>
+        <h3>欧非榜单</h3>
+        <p>导入你和朋友导出的 JSON，按出货效率计算欧非指数并排名。榜单只保存在当前浏览器里，不会把任何人的数据发送出去——要和朋友比较，请都在同一台设备上导入。</p>
+        <a class="entry-action ghost" href="/leaderboard.html">查看榜单 →</a>
+      </article>
+      <article class="entry-card">
+        <div class="entry-icon">⌁</div>
+        <h3>导入 JSON 查看数据分析</h3>
+        <p>把已经导出的抽卡记录 JSON 拖进来，立即用主分析页查看总览、SSR 时间线、保底进度和分享图——和本地工具里的分析页完全一样。</p>
+        <div class="import-drop" id="drop">
+          <div>拖放 JSON 文件到这里，或</div>
+          <label for="import-file">选择文件</label>
+          <input type="file" id="import-file" accept="application/json">
+          <div id="import-error" style="color:#f0a6b1;margin-top:10px"></div>
+        </div>
+      </article>
+      <article class="entry-card">
+        <div class="entry-icon">↺</div>
+        <h3>返回忘忘看报</h3>
+        <p>这里是忘忘看报的主页入口。无论你在榜单、分析页还是教程页，都可以随时点击左上角「← 返回忘忘看报」回到这里，重新选择想做的事情。</p>
+        <a class="entry-action ghost" href="/guide.html">查看完整使用教程 →</a>
+      </article>
+    </div>
+
+    <div class="privacy-band">
+      <div class="mark">🔒</div>
+      <div>
+        <h3>关于数据安全，我们想把话说清楚</h3>
+        <p>本地导出工具只读取<b>你自己</b>游戏客户端已经登录的那次会话展示给你的抽卡历史，整理过程全部在你电脑本地完成，不收集、不上传任何账号、密码、设备或聊天信息。导出的 JSON 里只有抽卡记录（物品、时间、序号等）和你自愿填写的昵称/UID，没有任何能登录你账号的内容；上传到本站做分析或榜单时，文件只会在你的浏览器里被解析，不会发送到任何服务器。详见 <a href="/guide.html#privacy">使用教程中的隐私说明</a>。</p>
+      </div>
+    </div>
+
+    <footer class="site-footer">忘忘看报 · 忘却前夜非官方抽卡分析工具 <span>·</span> 游戏素材归原权利人所有 <span>·</span> 所有数据仅保存在本机/本机浏览器</footer>
   </div>
-  <div class="modal-overlay" id="update-modal" hidden><div class="update-modal" role="dialog" aria-modal="true" aria-labelledby="update-title"><button class="modal-close" id="close-update" aria-label="关闭">×</button><span class="kicker">DATA SYNC</span><h2 id="update-title">自动更新抽卡记录</h2><p class="modal-intro">工具会查询当前游戏会话并补取缺失页面，每页立即保存。如果本次登录材料已从内存释放，可先点击“等待重新登录”，再重启游戏一次；工具检测到新会话后会自动查询。</p><div class="progress-track"><div id="progress-fill"></div></div><div class="progress-line"><b id="progress-text">准备就绪</b><span id="progress-number">—</span></div><div class="progress-coverage" id="progress-coverage"></div><div class="progress-log" id="progress-log"></div><div class="modal-actions"><button class="ghost" id="cancel-update">关闭</button><button class="ghost" id="wait-update">等待重新登录</button><button class="primary" id="start-update">开始更新</button></div></div></div>
-  <script src="/app.js" defer></script>
+  <script src="/home.js" defer></script>
 </body>
 </html>
