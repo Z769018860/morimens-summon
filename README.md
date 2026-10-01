@@ -38,6 +38,8 @@ Windows 下双击 [start.cmd](start.cmd)，或运行 `python app.py` 后打开 `
 
 详细里程碑、数据模型、验证门槛见 [开发方案](docs/ROADMAP.md)。首批数据采集见 [数据获取步骤](docs/DATA_ACQUISITION.md)。
 
+不启动游戏取得登录材料的单次验证结果见 [免启动登录验证](docs/NO_GAME_LOGIN_VALIDATION.md)：Steam 临时票据可取得，但目前尚未通过游戏网关认证。
+
 ## 本地录入原型
 
 需要 Python 3.10+，不需安装第三方包。复制 [CSV 模板](templates/history.csv) 到个人数据目录，按数据获取步骤填写后运行：
