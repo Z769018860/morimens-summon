@@ -8,6 +8,11 @@ let rules = {...DEFAULT_RULES,...JSON.parse(localStorage.getItem('morimens-rules
 let profile = {uid:'',nickname:'',...JSON.parse(localStorage.getItem('morimens-profile') || '{}')};
 let excluded = new Set(JSON.parse(localStorage.getItem('morimens-excluded') || '[]'));
 let overrides = JSON.parse(localStorage.getItem('morimens-overrides') || '{}');
+// User-defined banners: the public site has no SKeyDB catalog to auto-match
+// against, so this is how marking "which pool / who's UP" works there at
+// all — not just an override of an already-detected pool.
+let customBanners = JSON.parse(localStorage.getItem('morimens-custom-banners') || '[]');
+function saveCustomBanners(){localStorage.setItem('morimens-custom-banners', JSON.stringify(customBanners))}
 const IMPORT_MODE = new URLSearchParams(location.search).get('import') === '1';
 function saveExcluded(){localStorage.setItem('morimens-excluded', JSON.stringify([...excluded]))}
 function saveOverrides(){localStorage.setItem('morimens-overrides', JSON.stringify(overrides))}
@@ -33,34 +38,49 @@ function coverageOf(type){return data.coverage.find(c=>Number(c.history_type)===
 function activeBanners(r){const t=r.timestamp*1000,kind=metaOf(r).kind;return data.catalog.banners.filter(b=>bannerDate(b.startDate).getTime()<=t && t<bannerDate(b.endDate).getTime() && (b.featuredZh||[]).some(name=>catalog.get(name)?.kind===kind))}
 // An imported export has no banner calendar of its own (only the per-record
 // result the exporter already computed), so the live banner calendar is only
-// usable when it was actually loaded alongside the records (local tool, or a
-// future export that embeds it). Everything below falls back to whatever the
-// record already says once that calendar isn't available, instead of
-// silently re-deciding everyone as "unknown".
+// usable when it was actually loaded alongside the records (local tool). The
+// public site has none at all — customBanners (user-defined, local-only) is
+// how marking "which pool / who's UP" works there, not just an override of
+// an already-detected pool. Dates on a custom banner are optional: leaving
+// them blank matches that pool's kind at any time.
 function catalogReady(){return data.catalog.banners.length>0}
-function candidateBanners(r){return catalogReady()&&[1,2].includes(Number(r.history_type))?activeBanners(r):[]}
+function normalizeCustom(b){return {...b,titleZh:b.name,title:b.name,__custom:true}}
+function customCandidates(r){
+  const t=r.timestamp*1000,kind=metaOf(r).kind;
+  return customBanners.filter(b=>(b.kind==='both'||b.kind===kind)
+    && (!b.start||bannerDate(b.start).getTime()<=t) && (!b.end||t<bannerDate(b.end).getTime()))
+    .map(normalizeCustom);
+}
+function candidateBanners(r){
+  const catalog=catalogReady()&&[1,2].includes(Number(r.history_type))?activeBanners(r):[];
+  return [...customCandidates(r),...catalog];
+}
 function resolvedBanner(r){
   // The History RPC has no per-pull pool ID. Only a single matching event
-  // in the confirmed history family permits a definite UP/off-rate verdict,
-  // unless the player has manually resolved it on the records page.
+  // (catalog or user-defined) permits a definite UP/off-rate verdict, unless
+  // the player has manually resolved it on the records page.
   const override=overrides[keyOf(r)];
   if(override==='none')return null;
-  if(override)return data.catalog.banners.find(b=>b.id===override)||null;
-  if(!catalogReady())return null;
+  if(override){const custom=customBanners.find(b=>b.id===override);return custom?normalizeCustom(custom):data.catalog.banners.find(b=>b.id===override)||null}
   const candidates=candidateBanners(r);
   return candidates.length===1?candidates[0]:null;
 }
 function bannerAssignmentOf(r){
-  if(overrides[keyOf(r)])return 'manual';
-  if(!catalogReady())return r.bannerAssignment||'unknown';
-  return resolvedBanner(r)?'inferred':(candidateBanners(r).length?'ambiguous':'unknown');
+  const key=keyOf(r);
+  if(overrides[key])return 'manual';
+  const candidates=candidateBanners(r);
+  if(!candidates.length&&!catalogReady())return r.bannerAssignment||'unknown';
+  return candidates.length===1?'inferred':(candidates.length?'ambiguous':'unknown');
 }
 function upState(r){
   if(!isSSR(r))return null;
   if(overrides[keyOf(r)]==='none')return 'unknown';
-  if(!catalogReady())return r.upStatus??'unknown';
   const banner=resolvedBanner(r);
   if(banner)return (banner.featuredZh||[]).includes(r.name)?'up':'off';
+  // Nothing resolvable ourselves (no catalog, no custom banners defined at
+  // all) — trust whatever the exporter already computed rather than
+  // re-deciding everyone as unknown.
+  if(!catalogReady()&&!customBanners.length)return r.upStatus??'unknown';
   return 'unknown';
 }
 function upLabel(state){return ({up:'命中 UP',off:'歪',unknown:'无法确认'})[state]||''}
@@ -121,6 +141,14 @@ function computeAchievements(){
   return tags;
 }
 function portrait(r){const src=asset(r);return src?`<img src="${html(src)}" alt="">`:`<div class="placeholder ${rarityClass(metaOf(r).rarity)}">${html(initials(r.name))}</div>`}
+const KIND_LABEL={character:'角色',wheel:'命轮',unknown:'未分类'};
+function kindStats(kind){
+  const rows=data.records.filter(isIncluded).filter(r=>metaOf(r).kind===kind),hits=rows.filter(isSSR);
+  const ivals=allIntervals(),values=hits.map(r=>ivals.get(keyOf(r))).filter(Number.isFinite);
+  const mean=values.length?(values.reduce((a,b)=>a+b,0)/values.length).toFixed(1):'—';
+  const up=hits.filter(r=>upState(r)==='up').length,off=hits.filter(r=>upState(r)==='off').length;
+  return {count:rows.length,ssr:hits.length,rate:rows.length?(hits.length/rows.length*100).toFixed(1):'—',mean,up,off};
+}
 function renderOverview(){
   const rows=data.records.filter(isIncluded),ssrs=rows.filter(isSSR),intervals=allIntervals(),luck=luckLabel(intervals),complete=data.coverage.filter(c=>c.complete).length;
   const achievements=computeAchievements();
@@ -133,6 +161,8 @@ function renderOverview(){
   $('pool-bars').innerHTML=data.coverage.map(c=>`<div class="pool-row"><span>${html(nameFor(c.history_type))}</span><div class="bar"><div class="fill ${c.complete?'':'unknown'}" style="width:${Math.max(2,c.known/max*100)}%"></div></div><b>${c.known}/${c.reported_total}</b></div>`).join('');
   $('recent-ssr').innerHTML=ssrs.sort((a,b)=>b.timestamp-a.timestamp).slice(0,5).map(r=>`<div class="ssr-mini">${portrait(r)}<div class="info"><b>${html(r.name)}</b><small>${html(nameFor(r.history_type))} · ${dateOf(r.timestamp)}</small></div><span class="pill ${upState(r)==='up'?'up':upState(r)==='off'?'off':'muted'}">${html(upLabel(upState(r)))}</span></div>`).join('')||'<div class="empty">暂无已确认 SSR 记录</div>';
   $('category-analysis').innerHTML=data.coverage.map(c=>{const group=categoryRows(c.history_type).filter(isIncluded),hits=group.filter(isSSR),values=[...ssrIntervals(c.history_type).values()].filter(Number.isFinite),mean=values.length?(values.reduce((a,b)=>a+b,0)/values.length).toFixed(1):'—';return `<div class="category-row"><b>${html(nameFor(c.history_type))}</b><span>${group.length} 抽 · SSR ${hits.length} · 出率 ${group.length?(hits.length/group.length*100).toFixed(1):'—'}%</span><strong>均 ${mean} 抽</strong></div>`}).join('');
+  const kinds=['character','wheel',...(rows.some(r=>metaOf(r).kind==='unknown')?['unknown']:[])];
+  $('kind-analysis').innerHTML=kinds.map(k=>{const s=kindStats(k);return `<div class="category-row"><b>${KIND_LABEL[k]}</b><span>${s.count} 抽 · SSR ${s.ssr} · 出率 ${s.rate}% · UP ${s.up} / 歪 ${s.off}</span><strong>均 ${s.mean} 抽</strong></div>`}).join('')||'<div class="empty">暂无数据</div>';
   const buckets=[['1–5 抽',1,5],['6–10 抽',6,10],['11–20 抽',11,20],['21–30 抽',21,30],['31 抽以上',31,Infinity]],counts=buckets.map(([,lo,hi])=>valid.filter(n=>n>=lo&&n<=hi).length),maxBucket=Math.max(1,...counts);
   $('interval-analysis').innerHTML=buckets.map(([label],i)=>`<div class="interval-row"><span>${label}</span><div class="bar"><div class="fill" style="width:${counts[i]/maxBucket*100}%"></div></div><b>${counts[i]}</b></div>`).join('')+`<p class="analysis-note">${valid.length} 个连续区间；缺页或首段未覆盖不纳入平均值。</p>`;
   const hero=data.catalog.characters.find(x=>x.name==='蚀灭·萝坦'&&x.icon)||data.catalog.characters.find(x=>x.icon);
@@ -155,24 +185,42 @@ function renderHistory(){
   if(firstType!==null){const all=categoryRows(firstType),last=all.find(isSSR),top=all[0];if(last&&top){const known=new Set(all.map(x=>x.ordinal));let valid=true;for(let n=last.ordinal+1;n<=top.ordinal;n++)if(!known.has(n))valid=false;if(valid)latestProgress=`<div class="pity-now"><div class="pity-icon">✦</div><div><b>距离上次 SSR 已抽 ${top.ordinal-last.ordinal} 抽</b><small>${html(nameFor(firstType))} · 当前进度仅基于已保存记录</small></div><span>至今</span></div>`}}
   $('records').innerHTML=latestProgress+shown.map(r=>{
     const n=intervals.get(keyOf(r)),state=upState(r),banner=resolvedBanner(r),width=n==null?28:Math.min(100,Math.max(12,n/Math.max(1,Number(rules.pity))*100));
-    const key=keyOf(r),candidates=candidateBanners(r),override=overrides[key]||'';
-    const options=['<option value="">跟随自动判定</option>',...candidates.map(b=>`<option value="${html(b.id)}" ${override===b.id?'selected':''}>${html(bannerTitle(b))}</option>`),`<option value="none" ${override==='none'?'selected':''}>标记为无命中卡池</option>`];
-    const selectHtml=(candidates.length||override)?`<select class="banner-select" data-key="${html(key)}" title="自动判定不确定时可手动选择这次 SSR 命中的卡池">${options.join('')}</select>`:'';
+    const key=keyOf(r),override=overrides[key]||'';
+    // The manual picker offers every custom banner matching this record's
+    // kind regardless of its optional date range (a deliberate choice — the
+    // player is asserting a fact, not waiting on auto-detection), plus any
+    // date/kind-matched catalog banners; auto-resolution stays date-filtered.
+    const rKind=metaOf(r).kind;
+    const pickable=[...customBanners.filter(b=>b.kind==='both'||b.kind===rKind).map(normalizeCustom),...(catalogReady()?activeBanners(r):[])];
+    const options=['<option value="">跟随自动判定</option>',...pickable.map(b=>`<option value="${html(b.id)}" ${override===b.id?'selected':''}>${b.__custom?'★ ':''}${html(bannerTitle(b))}</option>`),`<option value="none" ${override==='none'?'selected':''}>标记为无命中卡池</option>`];
+    const selectHtml=(pickable.length||override)?`<select class="banner-select" data-key="${html(key)}" title="自动判定不确定时可手动选择这次 SSR 命中的卡池（★ 为你自己创建的卡池）">${options.join('')}</select>`:'';
     return `<article class="ssr-row ${isIncluded(r)?'':'excluded'}">${portrait(r)}<div class="ssr-row-body"><div class="ssr-row-top"><div><b>${html(r.name)}</b><small>${html(nameFor(r.history_type))} · ${dateOf(r.timestamp)}${banner?` · ${html(bannerTitle(banner))}`:''}</small></div><div class="row-controls"><label class="check" title="取消勾选可把这条记录排除出统计（例如误记录的非抽卡获得）"><input type="checkbox" class="include-toggle" data-key="${html(key)}" ${isIncluded(r)?'checked':''}> 计入统计</label>${selectHtml}<span class="pill ${state==='up'?'up':state==='off'?'off':'muted'}">${html(upLabel(state))}</span></div></div><div class="draw-track"><div class="draw-fill ${n==null?'unknown':n<=Number(rules.pity)*.5?'lucky':n>=Number(rules.pity)*.85?'late':'normal'}" style="width:${width}%"><strong>${n==null?'抽数待补全':`${n} 抽`}</strong></div></div></div></article>`;
   }).join('')||'<div class="empty">没有符合条件的 SSR 记录</div>';
   $('load-more').hidden=visibleCount>=rows.length;
 }
-function renderBanners(){const now=Date.now();$('banner-grid').innerHTML=[...data.catalog.banners].sort((a,b)=>bannerDate(b.startDate)-bannerDate(a.startDate)).map(b=>{const start=bannerDate(b.startDate).getTime(),end=bannerDate(b.endDate).getTime(),live=start<=now&&now<end,days=Math.round((end-start)/86400000*10)/10;return `<article class="banner-card ${live?'live':''}"><div class="banner-top"><span class="kicker">${html(b.type?.toUpperCase()||'BANNER')}</span><span class="pill ${live?'up':'muted'}">${live?'进行中':now<start?'即将开启':'已结束'}</span></div><h3>${html(bannerTitle(b))}</h3><p class="english-title">${html(b.title)}</p><p>UP：${html((b.featuredZh||[]).join(' / ')||'自选或未列明')}</p><div class="dates">${html(niceDate(b.startDate))} → ${html(niceDate(b.endDate))}</div><div class="duration">持续 ${days} 天 · 服务器时间 UTC+8</div></article>`}).join('')}
+function renderBanners(){
+  const now=Date.now();
+  $('banner-grid').innerHTML=[...data.catalog.banners].sort((a,b)=>bannerDate(b.startDate)-bannerDate(a.startDate)).map(b=>{const start=bannerDate(b.startDate).getTime(),end=bannerDate(b.endDate).getTime(),live=start<=now&&now<end,days=Math.round((end-start)/86400000*10)/10;return `<article class="banner-card ${live?'live':''}"><div class="banner-top"><span class="kicker">${html(b.type?.toUpperCase()||'BANNER')}</span><span class="pill ${live?'up':'muted'}">${live?'进行中':now<start?'即将开启':'已结束'}</span></div><h3>${html(bannerTitle(b))}</h3><p class="english-title">${html(b.title)}</p><p>UP：${html((b.featuredZh||[]).join(' / ')||'自选或未列明')}</p><div class="dates">${html(niceDate(b.startDate))} → ${html(niceDate(b.endDate))}</div><div class="duration">持续 ${days} 天 · 服务器时间 UTC+8</div></article>`}).join('');
+  renderCustomBanners();
+}
+function renderCustomBanners(){
+  $('custom-banner-list').innerHTML=customBanners.length?customBanners.map(b=>`
+    <div class="custom-banner-row">
+      <div><b>★ ${html(b.name)}</b><small>${html({character:'角色',wheel:'命轮',both:'不限'}[b.kind]||b.kind)} · UP：${html(b.featuredZh.join(' / ')||'未填写')}${b.start||b.end?` · ${html(b.start||'不限')} → ${html(b.end||'不限')}`:' · 不限时间'}</small></div>
+      <button class="board-remove" data-cb-remove="${html(b.id)}">删除</button>
+    </div>`).join('') : '<p class="source-note">还没有添加自定义卡池。</p>';
+}
 function renderRules(){for(const [id,key] of [['base-rate','base'],['combined-rate','combined'],['hard-pity','pity'],['up-rate','up']])$(id).value=rules[key];$('profile-uid').value=profile.uid||'';$('profile-nickname').value=profile.nickname||''}
 function showView(name){for(const v of document.querySelectorAll('.view'))v.classList.toggle('active',v.id===name);for(const n of document.querySelectorAll('.nav'))n.classList.toggle('active',n.dataset.view===name);$('view-name').textContent=({overview:'抽卡总览',history:'SSR 时间线',banners:'限时卡池',rules:'概率与规则'})[name];if(name==='history')renderHistory();if(name==='banners')renderBanners();if(name==='rules')renderRules();window.scrollTo({top:0,behavior:'smooth'})}
 function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
 function structured(){
   const intervals=allIntervals();
-  return {schemaVersion:3,generatedAt:new Date().toISOString(),source:'Summon.QuerySummonHistory',timeZone:'Asia/Shanghai',
+  return {schemaVersion:4,generatedAt:new Date().toISOString(),source:'Summon.QuerySummonHistory',timeZone:'Asia/Shanghai',
     player:{uid:profile.uid||null,nickname:profile.nickname||null},
     coverage:data.coverage,rules:{...rules,verified:false},
     achievementTags:computeAchievements().map(a=>a.label),
-    customBanners:Object.entries(overrides).filter(([,v])=>v).map(([key,bannerId])=>({key,bannerId})),
+    customBanners,// user-defined banner pools (name/kind/featuredZh/start/end), travels with the file
+    manualAssignments:Object.entries(overrides).filter(([,v])=>v).map(([key,bannerId])=>({key,bannerId})),
     records:data.records.map(r=>({...r,rarity:metaOf(r).rarity,kind:metaOf(r).kind,
       pullsSinceSSR:isSSR(r)?intervals.get(keyOf(r))??null:null,
       bannerId:resolvedBanner(r)?.id||(catalogReady()?null:r.bannerId||null),bannerAssignment:bannerAssignmentOf(r),
@@ -237,6 +285,18 @@ function applyLoadedData(loaded){
     if(r.excluded&&!excluded.has(key)){excluded.add(key)}
     if(r.bannerAssignment==='manual'&&r.bannerId&&!overrides[key])overrides[key]=r.bannerId;
   }
+  // `customBanners` meant per-record manual assignments in schemaVersion <=3;
+  // it's the user-defined banner pool list from v4 on. Tell them apart by
+  // shape rather than by version number alone, so odd hand-edited files still work.
+  const incomingBanners=Array.isArray(loaded.customBanners)?loaded.customBanners:[];
+  const legacyShape=incomingBanners.length&&incomingBanners.every(x=>x&&'bannerId' in x&&'key' in x&&!('featuredZh' in x));
+  if(legacyShape){
+    for(const {key,bannerId} of incomingBanners)if(bannerId&&!overrides[key])overrides[key]=bannerId;
+  }else{
+    for(const b of incomingBanners)if(b&&b.id&&!customBanners.some(x=>x.id===b.id))customBanners.push(b);
+    if(incomingBanners.length)saveCustomBanners();
+  }
+  for(const {key,bannerId} of loaded.manualAssignments||[])if(bannerId&&!overrides[key])overrides[key]=bannerId;
   if(excluded.size)saveExcluded();
   if(Object.keys(overrides).length)saveOverrides();
   if(loaded.player&&(loaded.player.uid||loaded.player.nickname)&&!profile.uid&&!profile.nickname){
@@ -252,7 +312,11 @@ async function refresh(){
       applyLoadedData(JSON.parse(raw));
       $('sync-time').textContent=`已导入 ${data.records.length} 条记录 · 非本机实时数据`;
       $('coverage-notice').innerHTML='<b>导入模式</b>　当前展示的是你导入的 JSON 文件内容，不连接本机游戏，也不会把文件上传到任何服务器。“自动更新”仅在本地离线工具里可用。';
-      $('refresh').disabled=true;$('refresh').title='导入模式下不可用，请使用本地离线工具更新数据';
+      // No local backend to poll in import mode — point at the download/guide
+      // instead of a dead "开始更新" modal.
+      $('refresh').textContent='⇩ 下载本地工具更新数据';
+      $('refresh').title='网页导入模式不能直接更新；前往教程下载本地工具后更新，再重新导出 JSON';
+      $('refresh').onclick=()=>{location.href='guide.html'};
       renderOverview();renderHistory();renderBanners();renderRules();
     }catch(error){$('coverage-notice').textContent=`导入的 JSON 解析失败：${error.message}`}
     return;
@@ -294,6 +358,27 @@ document.addEventListener('change',e=>{
   if(toggle){const key=toggle.dataset.key;if(toggle.checked)excluded.delete(key);else excluded.add(key);saveExcluded();renderOverview();renderHistory();return}
   const select=e.target.closest('.banner-select');
   if(select){const key=select.dataset.key,value=select.value;if(value)overrides[key]=value;else delete overrides[key];saveOverrides();renderOverview();renderHistory()}
+});
+$('cb-add').onclick=()=>{
+  const name=$('cb-name').value.trim();
+  const featuredZh=$('cb-featured').value.split(/[\/,，、]/).map(s=>s.trim()).filter(Boolean);
+  const start=$('cb-start').value.trim(),end=$('cb-end').value.trim();
+  if(!name){alert('请填写卡池名称');return}
+  if(!featuredZh.length){alert('请至少填写一个 UP 角色/命轮名称');return}
+  for(const value of [start,end])if(value&&isNaN(bannerDate(value).getTime())){alert('时间格式应为 2026/07/20 12:00，或留空表示不限');return}
+  customBanners.push({id:'custom-'+Date.now().toString(36),name,kind:$('cb-kind').value,featuredZh,start:start||null,end:end||null});
+  saveCustomBanners();
+  $('cb-name').value='';$('cb-featured').value='';$('cb-start').value='';$('cb-end').value='';
+  renderCustomBanners();renderOverview();renderHistory();
+};
+document.addEventListener('click',e=>{
+  const remove=e.target.closest('[data-cb-remove]');
+  if(remove){
+    const id=remove.dataset.cbRemove;
+    customBanners=customBanners.filter(b=>b.id!==id);
+    for(const key of Object.keys(overrides))if(overrides[key]===id)delete overrides[key];
+    saveCustomBanners();saveOverrides();renderCustomBanners();renderOverview();renderHistory();
+  }
 });
 if(IMPORT_MODE)document.body.classList.add('import-mode');
 refresh();

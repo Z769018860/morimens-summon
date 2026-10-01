@@ -31,6 +31,7 @@
         <div class="stat-grid" id="stats"></div>
         <div class="dashboard-grid"><section class="panel"><div class="panel-head"><div><span class="kicker">POOLS</span><h3>卡池分布</h3></div><button class="text-button" data-target="history">查看全部 →</button></div><div id="pool-bars"></div></section><section class="panel"><div class="panel-head"><div><span class="kicker">SSR TIMELINE</span><h3>最近的闪光</h3></div><span class="subtle">抽数按同类别计算</span></div><div id="recent-ssr"></div></section></div>
         <div class="dashboard-grid"><section class="panel"><div class="panel-head"><div><span class="kicker">BY CATEGORY</span><h3>各类出货表现</h3></div><span class="subtle">已保存记录</span></div><div id="category-analysis"></div></section><section class="panel"><div class="panel-head"><div><span class="kicker">SSR INTERVALS</span><h3>出货抽数分布</h3></div><span class="subtle">仅连续记录</span></div><div id="interval-analysis"></div></section></div>
+        <div class="dashboard-grid"><section class="panel"><div class="panel-head"><div><span class="kicker">BY KIND</span><h3>命轮 / 角色分开统计</h3></div><span class="subtle">跨类别汇总</span></div><div id="kind-analysis"></div></section></div>
       </section>
       <section class="view" id="history">
         <div class="page-title"><div><span class="kicker">SSR TIMELINE</span><h1>卡池出货时间线</h1><p>每条横杆代表两次 SSR 之间的抽数。SR 及其他记录只计入抽数，不在列表中展示。</p></div><div class="export-row"><button class="ghost" id="export-json">导出 JSON</button><button class="ghost" id="export-csv">导出 CSV</button></div></div>
@@ -42,6 +43,17 @@
         <div class="page-title"><div><span class="kicker">LIMITED BANNERS</span><h1>限时卡池日历</h1><p>SKeyDB 收录的活动时间（UTC+8）。同一时段可能有多个卡池，历史记录未包含确切卡池 ID。</p></div></div>
         <div class="banner-grid" id="banner-grid"></div>
         <p class="source-note">日程及图片来源：<a href="https://github.com/dansa/SKeyDB" target="_blank" rel="noreferrer">SKeyDB</a>。请以游戏内实际公告为准；图片仅供本地个人使用。</p>
+        <div class="section-head" style="margin:38px 0 16px"><div><span class="kicker">CUSTOM · 本机</span><h2>自定义卡池</h2></div><span class="subtle">用于手动标记「抽卡记录」页里无法自动判定的 SSR</span></div>
+        <p class="source-note">在没有官方卡池日历（例如网页导入模式）时，自己把见过的卡池和 UP 名单记下来，就能在「抽卡记录」页手动给每条 SSR 选择命中的卡池。只保存在本机浏览器，也会一并写进导出的 JSON。</p>
+        <div class="custom-banner-form">
+          <label>卡池名称<input id="cb-name" placeholder="例如：三相衡生"></label>
+          <label>类型<select id="cb-kind"><option value="character">角色</option><option value="wheel">命轮</option><option value="both">不限</option></select></label>
+          <label>UP 名单（用 / 或 , 分隔）<input id="cb-featured" placeholder="例如：潘狄娅 / 庞托斯"></label>
+          <label>开始时间（可选，UTC+8）<input id="cb-start" placeholder="2026/07/20 12:00"></label>
+          <label>结束时间（可选，UTC+8）<input id="cb-end" placeholder="2026/08/03 11:59"></label>
+          <button class="primary" id="cb-add">添加卡池</button>
+        </div>
+        <div id="custom-banner-list"></div>
       </section>
       <section class="view" id="rules">
         <div class="page-title"><div><span class="kicker">PROBABILITY & TRUST</span><h1>概率与保底</h1><p>不同服务器与卡池可能使用不同规则。当前数值是可修改的参考假设，不会伪装成已核实的官方公示。</p></div></div>
