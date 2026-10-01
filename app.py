@@ -11,6 +11,7 @@ import subprocess
 import sys
 import threading
 import webbrowser
+from contextlib import closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -105,7 +106,7 @@ def update_worker(wait_auth: bool = False) -> None:
 
 
 def payload(db_path: Path = DB, catalog_path: Path = CATALOG) -> dict:
-    with history_store.connect(db_path) as db:
+    with closing(history_store.connect(db_path)) as db:
         records = [dict(row) for row in db.execute("""SELECT history_type,ordinal,item_tid,name,timestamp
             FROM history_records ORDER BY history_type,ordinal DESC""")]
         coverage = history_store.coverage(db)

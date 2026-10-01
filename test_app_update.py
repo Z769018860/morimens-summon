@@ -1,8 +1,11 @@
 import io
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import app
+import history_store
 
 
 class FakeProcess:
@@ -28,7 +31,16 @@ class UpdateTests(unittest.TestCase):
         self.assertTrue(any("类别 10 第 25 页" in line for line in app.UPDATE["log"]))
 
     def test_api_payload_excludes_login_and_player_id(self):
-        data = app.payload()
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'history.sqlite3'
+            db = history_store.connect(path)
+            try:
+                history_store.ingest_page(db, 2, 1, {'count': 1, 'records': [
+                    {'type': 2, 'itemTid': 123, 'name': 'Item_123_Name|测试',
+                     'timestamp': 1780000000, 'playerId': 987654321}]})
+            finally:
+                db.close()
+            data = app.payload(db_path=path)
         self.assertTrue(data["records"])
         self.assertEqual(set(data["records"][0]),
                          {"history_type", "ordinal", "item_tid", "name", "timestamp"})

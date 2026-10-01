@@ -8,9 +8,8 @@ let rules = {...DEFAULT_RULES,...JSON.parse(localStorage.getItem('morimens-rules
 let profile = {uid:'',nickname:'',...JSON.parse(localStorage.getItem('morimens-profile') || '{}')};
 let excluded = new Set(JSON.parse(localStorage.getItem('morimens-excluded') || '[]'));
 let overrides = JSON.parse(localStorage.getItem('morimens-overrides') || '{}');
-// User-defined banners: the public site has no SKeyDB catalog to auto-match
-// against, so this is how marking "which pool / who's UP" works there at
-// all — not just an override of an already-detected pool.
+// User-defined banners supplement the pinned SKeyDB calendar when concurrent
+// events or missing pool IDs prevent a unique automatic match.
 let customBanners = JSON.parse(localStorage.getItem('morimens-custom-banners') || '[]');
 function saveCustomBanners(){localStorage.setItem('morimens-custom-banners', JSON.stringify(customBanners))}
 // 我的 Box: per-item (character/wheel) pull count -> 启灵/叠位, persisted and
@@ -20,6 +19,7 @@ function saveCustomBanners(){localStorage.setItem('morimens-custom-banners', JSO
 // scratch). Caps are a configurable guess, not verified game data.
 const DEFAULT_BOX_CAPS = {SSR:6,SR:6,R:6,Genesis:1};
 let box = JSON.parse(localStorage.getItem('morimens-box') || '{}');
+let publicCatalog = null;
 let boxCaps = {...DEFAULT_BOX_CAPS, ...JSON.parse(localStorage.getItem('morimens-box-caps') || '{}')};
 function saveBox(){localStorage.setItem('morimens-box', JSON.stringify(box))}
 function saveBoxCaps(){localStorage.setItem('morimens-box-caps', JSON.stringify(boxCaps))}
@@ -52,6 +52,7 @@ function mergeBox(incoming){
     for(const k of inc.countedKeys)if(!set.has(k)){set.add(k);entry.countedKeys.push(k);changed=true}
     if(entry.manualStack==null&&inc.manualStack!=null){entry.manualStack=inc.manualStack;changed=true}
     if(entry.manualLevel==null&&inc.manualLevel!=null){entry.manualLevel=inc.manualLevel;changed=true}
+    if(Array.isArray(inc.keyStages)&&!Array.isArray(entry.keyStages)){entry.keyStages=inc.keyStages.filter(Number.isInteger);changed=true}
   }
   if(changed)saveBox();
 }
@@ -141,9 +142,7 @@ function allIntervals(){const out=new Map();for(const c of data.coverage)for(con
 function expectedPity(){const p=Number(rules.base)/100,n=Number(rules.pity);return p>0&&n>0?(1-Math.pow(1-p,n))/p:null}
 function luckLabel(intervals){const values=[...intervals.values()].filter(v=>v!==null);if(values.length<5)return {label:'样本不足',detail:`${values.length} 次有效 SSR 间隔`};const avg=values.reduce((a,b)=>a+b,0)/values.length,expected=expectedPity();if(!expected)return {label:'规则待设置',detail:`平均 ${avg.toFixed(1)} 抽`};return {label:avg<=expected*.8?'偏欧':avg>=expected*1.2?'偏非':'正常波动',detail:`平均 ${avg.toFixed(1)} 抽 · 参考期望 ${expected.toFixed(1)} 抽`}}
 function asset(r){return metaOf(r).icon||''}
-// No game artwork ships with this tool (not ours to redistribute — see
-// sync_skeydb_assets.py), so unmatched items get an original badge instead of
-// a bare placeholder glyph: the item's own initial on a rarity-coded gradient.
+// Unmatched items get a rarity badge with the item's initials.
 const RARITY_CLASS={SSR:'r-ssr',SR:'r-sr',R:'r-r',Genesis:'r-genesis'};
 function rarityClass(rarity){return RARITY_CLASS[rarity]||'r-unknown'}
 function initials(name){return [...String(name||'?')].slice(0,2).join('')}
@@ -288,7 +287,7 @@ function exportBoxSummary(){
 }
 // \u73a9\u5bb6\u4fee\u6b63\u7248\uff1a\u624b\u52a8\u53e0\u4f4d/\u7b49\u7ea7\u8986\u76d6\u81ea\u52a8\u503c\uff08\u672a\u624b\u52a8\u4fee\u6539\u7684\u9879\u76ee\u4ecd\u7528\u81ea\u52a8\u53e0\u4f4d\uff0c\u7b49\u7ea7\u7559\u7a7a\uff09\u3002
 function exportBoxCorrected(){
-  const rows=boxRows().map(({name,kind,rarity,pulls,cap,autoStack,manualStack,manualLevel})=>({name,kind,rarity,pulls,cap,autoStack,stack:manualStack??autoStack,level:manualLevel??null,corrected:manualStack!=null||manualLevel!=null}));
+  const rows=boxRows().map(({name,kind,rarity,pulls,cap,autoStack,manualStack,manualLevel})=>({name,kind,rarity,pulls,cap,autoStack,stack:manualStack??autoStack,level:manualLevel??null,keyStages:box[name]?.keyStages||[],corrected:manualStack!=null||manualLevel!=null}));
   const payload={schemaVersion:1,type:'box-corrected',generatedAt:new Date().toISOString(),player:{uid:profile.uid||null,nickname:profile.nickname||null},caps:boxCaps,items:rows};
   download(new Blob([JSON.stringify(payload,null,2)],{type:'application/json;charset=utf-8'}),`morimens-box-corrected${profile.nickname?'-'+profile.nickname:''}.json`);
 }
@@ -305,20 +304,23 @@ function renderBox(){
   const rows=boxRows();
   const characters=rows.filter(r=>r.kind==='character'),wheels=rows.filter(r=>r.kind==='wheel');
   $('box-summary').innerHTML=`<span>\u89d2\u8272 <b>${characters.length}</b> \u4e2a</span><span>\u547d\u8f6e <b>${wheels.length}</b> \u4e2a</span><span>\u5df2\u5230\u53e0\u4f4d\u4e0a\u9650 <b>${rows.filter(r=>r.autoStack>=r.cap).length}</b> \u4e2a</span>`;
-  const renderGroup=list=>list.length?list.map(r=>`
-    <div class="box-row">
-      <div class="placeholder ${rarityClass(r.rarity)}" style="width:44px;height:44px;flex:0 0 44px;border-radius:9px">${html(initials(r.name))}</div>
-      <div class="box-name"><b>${html(r.name)}</b><small>${html(r.rarity)} \u00b7 \u5df2\u62c9\u53d6 ${r.pulls} \u6b21</small></div>
-      <div class="box-field"><label>\u81ea\u52a8\u53e0\u4f4d</label><div class="box-readonly">${r.autoStack} / ${r.cap}</div></div>
-      <div class="box-field"><label>\u624b\u52a8\u53e0\u4f4d</label><input type="number" min="0" max="${r.cap}" class="box-stack" data-name="${html(r.name)}" placeholder="${r.autoStack}" value="${r.manualStack??''}"></div>
-      <div class="box-field"><label>\u7b49\u7ea7</label><input type="number" min="0" class="box-level" data-name="${html(r.name)}" placeholder="\u672a\u586b\u5199" value="${r.manualLevel??''}"></div>
-    </div>`).join('') : '<p class="source-note">\u6682\u65e0\u8bb0\u5f55\u3002</p>';
+  const renderGroup=list=>list.length?list.map(r=>{
+    const meta=catalog.get(r.name),art=r.kind==='character'?(meta?.card||meta?.icon):meta?.icon;
+    const entry=box[r.name]||{},keyStages=Array.isArray(entry.keyStages)?entry.keyStages:[];
+    const stack=r.manualStack??r.autoStack;
+    const stages=r.kind==='character'?`<div class="box-stages" aria-label="启灵阶段">${Array.from({length:Math.min(r.cap,9)},(_,i)=>{const stage=i+1,key=keyStages.includes(stage);return `<button type="button" class="box-stage ${stage<=stack?'reached':''} ${key?'key-stage':''}" data-name="${html(r.name)}" data-stage="${stage}" title="点击${key?'取消':'标记'}此角色的关键启灵">${stage}</button>`}).join('')}</div>`:'';
+    return `<article class="box-card ${rarityClass(r.rarity)}">
+      <div class="box-art">${art?`<img src="${html(art)}" alt="${html(r.name)}立绘" loading="lazy" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><div class="box-art-fallback" hidden>${html(initials(r.name))}</div>`:`<div class="box-art-fallback">${html(initials(r.name))}</div>`}</div>
+      <div class="box-card-body"><b class="box-card-name">${html(r.name)}</b><small>${html(r.rarity)} · 已获取 ${r.pulls} 次</small>
+      <div class="box-values"><span><label>${r.kind==='character'?'启灵':'叠位'}</label><strong>${stack} / ${r.cap}</strong></span><span><label>等级</label><strong>${r.manualLevel??'—'}</strong></span></div>
+      ${stages}<div class="box-edit"><label>修正${r.kind==='character'?'启灵':'叠位'}<input type="number" min="0" max="${r.cap}" class="box-stack" data-name="${html(r.name)}" placeholder="${r.autoStack}" value="${r.manualStack??''}"></label><label>等级<input type="number" min="0" class="box-level" data-name="${html(r.name)}" placeholder="—" value="${r.manualLevel??''}"></label></div></div>
+    </article>`}).join('') : '<p class="source-note">暂无记录。</p>';
   $('box-characters').innerHTML=renderGroup(characters);
   $('box-wheels').innerHTML=renderGroup(wheels);
 }
 function roundRect(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath()}
 const RARITY_FILL={SSR:['#f6dfa0','#c99d4e'],SR:['#d7def0','#8fa3c7'],R:['#aeb9c2','#798591'],Genesis:['#f2b4e0','#6fd9f0']};
-// Canvas counterpart of the .placeholder badge CSS, for the same no-artwork reason.
+// Canvas counterpart of the .placeholder badge CSS.
 function drawBadge(c,x,y,size,rarity,name){
   const [c1,c2]=RARITY_FILL[rarity]||['#3a4350','#3a4350'];
   const g=c.createLinearGradient(x,y,x+size,y+size);g.addColorStop(0,c1);g.addColorStop(1,c2);
@@ -364,6 +366,13 @@ async function shareImage(){
 }
 function applyLoadedData(loaded){
   data={catalog:{characters:[],wheels:[],banners:[]},...loaded};
+  if(publicCatalog){
+    const supplied=data.catalog||{};
+    data.catalog={...publicCatalog,...supplied,
+      characters:(publicCatalog.characters||[]).map(item=>({...item,...(supplied.characters||[]).find(x=>x.id===item.id),card:item.card})),
+      wheels:(publicCatalog.wheels||[]).map(item=>({...item,...(supplied.wheels||[]).find(x=>x.id===item.id)})),
+      banners:supplied.banners?.length?supplied.banners:publicCatalog.banners};
+  }
   catalog=new Map();
   for(const [kind,items] of [['character',data.catalog.characters],['wheel',data.catalog.wheels]])
     for(const item of items||[])catalog.set(item.name,{...item,kind});
@@ -402,6 +411,7 @@ async function refresh(){
     const raw=sessionStorage.getItem('morimens-import');
     if(!raw){$('coverage-notice').textContent='没有找到导入的 JSON，请回到主页重新选择文件。';return}
     try{
+      if(!publicCatalog){const catalogResponse=await fetch('catalog.json');if(catalogResponse.ok)publicCatalog=await catalogResponse.json()}
       applyLoadedData(JSON.parse(raw));
       $('sync-time').textContent=`已导入 ${data.records.length} 条记录 · 非本机实时数据`;
       $('coverage-notice').innerHTML='<b>导入模式</b>　当前展示的是你导入的 JSON 文件内容，不连接本机游戏，也不会把文件上传到任何服务器。“自动更新”仅在本地离线工具里可用。';
@@ -451,6 +461,14 @@ document.addEventListener('change',e=>{
   if(toggle){const key=toggle.dataset.key;if(toggle.checked)excluded.delete(key);else excluded.add(key);saveExcluded();renderOverview();renderHistory();return}
   const select=e.target.closest('.banner-select');
   if(select){const key=select.dataset.key,value=select.value;if(value)overrides[key]=value;else delete overrides[key];saveOverrides();renderOverview();renderHistory()}
+});
+document.addEventListener('click',e=>{
+  const button=e.target.closest('.box-stage');if(!button)return;
+  const entry=box[button.dataset.name],stage=Number(button.dataset.stage);
+  if(!entry||entry.kind!=='character'||!Number.isInteger(stage))return;
+  const marked=new Set(entry.keyStages||[]);
+  if(marked.has(stage))marked.delete(stage);else marked.add(stage);
+  entry.keyStages=[...marked].sort((a,b)=>a-b);saveBox();renderBox();
 });
 $('cb-add').onclick=()=>{
   const name=$('cb-name').value.trim();

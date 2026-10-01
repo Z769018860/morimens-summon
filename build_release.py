@@ -1,9 +1,8 @@
 """Package the local analysis tool (app.py + web UI + helper scripts) into a
 distributable zip for GitHub Releases.
 
-Game art from SKeyDB is explicitly excluded (see sync_skeydb_assets.py) because
-it isn't licensed for redistribution outside of SKeyDB itself; start.cmd pulls
-it automatically on first run instead, straight from the public SKeyDB repo.
+The package includes an entity-to-image URL catalog, not game image bytes.
+start.cmd can cache images locally from SKeyDB on first run.
 """
 
 from __future__ import annotations
@@ -37,6 +36,8 @@ EXCLUDE_SUFFIXES = {".pyc"}
 
 def add_file(zf: zipfile.ZipFile, path: Path) -> None:
     if path.name in EXCLUDE_NAMES or path.suffix in EXCLUDE_SUFFIXES:
+        return
+    if path.is_relative_to(ROOT / "web" / "assets") or path.is_relative_to(ROOT / "web" / "downloads"):
         return
     zf.write(path, path.relative_to(ROOT))
 

@@ -1,14 +1,11 @@
-"""Build a private local art/catalog cache from SKeyDB and Chinese name maps.
-
-SKeyDB's game art is not licensed under its source-code MIT license. Downloaded
-art stays in data/local and web/assets, both excluded from Git.
-"""
+"""Build local image cache and a public catalog that links to pinned upstream art."""
 
 from __future__ import annotations
 
 import json
 import shutil
 import subprocess
+from urllib.parse import quote
 from pathlib import Path
 
 
@@ -17,6 +14,7 @@ UPSTREAM = ROOT / "data" / "local" / "SKeyDB"
 LABELS = ROOT / "resources" / "labels.zh-CN.json"
 ASSETS = ROOT / "web" / "assets"
 CATALOG = ROOT / "data" / "local" / "catalog.json"
+PUBLIC_CATALOG = ROOT / "web" / "catalog.json"
 SOURCE = "https://github.com/dansa/SKeyDB"
 BANNER_TITLES = {
     "Triune Verdant": "三相衡生",
@@ -60,18 +58,33 @@ def main() -> None:
     character_names = names["characters"]
     wheel_names = names["wheels"]
     characters = []
-    retained = {"characters": set(), "wheels": set()}
+    public_characters = []
+    public_wheels = []
+    retained = {"characters": set(), "wheels": set(), "cards": set()}
     for item in awakeners:
         art = UPSTREAM / "src" / "assets" / "awk-portraits" / f"{slug(item['name'])}.webp"
+        card = UPSTREAM / "src" / "assets" / "awk-cards" / f"{slug(item['name'])}.webp"
         icon = None
-        if item.get("rarity") == "SSR" and art.is_file():
+        if art.is_file():
             destination = ASSETS / "characters" / f"{item['id']}.webp"
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(art, destination)
             icon = f"/assets/characters/{destination.name}"
             retained["characters"].add(destination.name)
+        card_url = None
+        if card.is_file():
+            destination = ASSETS / "cards" / f"{item['id']}.webp"
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(card, destination)
+            card_url = f"/assets/cards/{destination.name}"
+            retained["cards"].add(destination.name)
         characters.append({"id": item["id"], "name": character_names.get(item["id"], item["name"]),
-                           "englishName": item["name"], "rarity": item.get("rarity"), "icon": icon})
+                           "englishName": item["name"], "rarity": item.get("rarity"),
+                           "icon": icon, "card": card_url or icon})
+        public_characters.append({"id": item["id"], "name": character_names.get(item["id"], item["name"]),
+                                  "englishName": item["name"], "rarity": item.get("rarity"),
+                                  "_portrait": art.relative_to(UPSTREAM).as_posix() if art.is_file() else None,
+                                  "_card": card.relative_to(UPSTREAM).as_posix() if card.is_file() else None})
     wheel_items = []
     for item in wheels:
         asset_id = (item.get("assets") or {}).get("icon")
@@ -79,7 +92,7 @@ def main() -> None:
         art_name = asset.get("assetId")
         art = UPSTREAM / "src" / "assets" / "wheels" / f"{art_name}.webp" if art_name else None
         icon = None
-        if item.get("rarity") == "SSR" and art and art.is_file():
+        if art and art.is_file():
             destination = ASSETS / "wheels" / f"{item['id']}.webp"
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(art, destination)
@@ -87,6 +100,9 @@ def main() -> None:
             retained["wheels"].add(destination.name)
         wheel_items.append({"id": item["id"], "name": wheel_names.get(item["id"], item["name"]),
                             "englishName": item["name"], "rarity": item.get("rarity"), "icon": icon})
+        public_wheels.append({"id": item["id"], "name": wheel_names.get(item["id"], item["name"]),
+                              "englishName": item["name"], "rarity": item.get("rarity"),
+                              "_icon": art.relative_to(UPSTREAM).as_posix() if art and art.is_file() else None})
     for category, keep in retained.items():
         folder = (ASSETS / category).resolve()
         if not folder.is_relative_to(ASSETS.resolve()):
@@ -110,6 +126,20 @@ def main() -> None:
     CATALOG.write_text(json.dumps({"source": SOURCE, "revision": revision,
                                    "characters": characters, "wheels": wheel_items,
                                    "banners": banners}, ensure_ascii=False), encoding="utf-8")
+    # The public page links to the upstream art at a pinned revision. No game
+    # image bytes are copied into this repository or its downloadable archive.
+    base = f"https://raw.githubusercontent.com/dansa/SKeyDB/{revision}/"
+    for entry in public_characters:
+        entry["icon"] = base + quote(entry.pop("_portrait")) if entry["_portrait"] else None
+        entry.pop("_portrait", None)
+        entry["card"] = base + quote(entry.pop("_card")) if entry["_card"] else entry["icon"]
+        entry.pop("_card", None)
+    for entry in public_wheels:
+        entry["icon"] = base + quote(entry.pop("_icon")) if entry["_icon"] else None
+        entry.pop("_icon", None)
+    PUBLIC_CATALOG.write_text(json.dumps({"source": SOURCE, "revision": revision,
+                                          "characters": public_characters, "wheels": public_wheels,
+                                          "banners": banners}, ensure_ascii=False), encoding="utf-8")
     print("CATALOG_READY", len(characters), "characters", sum(bool(x["icon"]) for x in characters), "portraits",
           len(wheel_items), "wheels", sum(bool(x["icon"]) for x in wheel_items), "wheel art")
 
