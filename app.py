@@ -112,6 +112,11 @@ def update_worker(mode: str = "now") -> None:
                 phase, message = "login", "已读取当前游戏会话，正在建立查询连接…"
             elif line.startswith("CURRENT_MAIN_TARGET"):
                 phase, message = "login", "已识别当前游戏主连接路由，正在连接对应服务器…"
+            elif line.startswith("MAIN_TARGET_REJECTED"):
+                phase, message = "login", "一个旧路由未返回抽卡历史，正在验证其他当前路由…"
+            elif line.startswith("NO_VALID_MAIN_TARGET"):
+                failure = "当前候选路由均未返回有效抽卡历史；请确认游戏已完成登录，稍后重试。"
+                phase, message = "failed", failure
             elif line.startswith("LOCAL_PAGES_LOADED"):
                 phase, message = "prepare", "已读取本地历史断点…"
             elif line.startswith(("AUTH_RESULT", "LOGIN_RESULT")):

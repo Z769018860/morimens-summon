@@ -69,8 +69,13 @@ def captured_logins(path: Path, reference, pilot):
     return gateway, mains[-1]
 
 
-def current_main_target(memory, pid: int) -> str:
-    """Read the current shard route from the game process without modifying it."""
+def rank_main_targets(routes: set[str]) -> list[str]:
+    return sorted(routes, key=lambda route: int(route.split(".", 1)[0].rsplit("-", 1)[1]),
+                  reverse=True)
+
+
+def current_main_targets(memory, pid: int) -> list[str]:
+    """Read candidate shard routes from the game process without modifying it."""
     handle = memory.K.OpenProcess(0x0410, False, pid)
     if not handle:
         raise ctypes.WinError(ctypes.get_last_error())
@@ -100,9 +105,11 @@ def current_main_target(memory, pid: int) -> str:
                     found.add(match.decode("ascii"))
     finally:
         memory.K.CloseHandle(handle)
-    if len(found) != 1:
-        raise RuntimeError(f"当前主连接路由无法唯一确定：{len(found)} 个候选")
-    return found.pop()
+    if not found:
+        raise RuntimeError("当前游戏进程中未找到主连接路由")
+    # The numeric route may advance as the game reconnects. Prefer newer-looking
+    # candidates, but confirm one with a real history response before using it.
+    return rank_main_targets(found)
 
 
 def recv_for_session(conn, session: int, pending: bytearray, pilot, timeout: float = 8):
@@ -238,25 +245,44 @@ def main() -> None:
             print("NO_CURRENT_AUTH", flush=True)
             raise SystemExit(2)
         gateway, (target, main) = captured_logins(args.capture, reference, pilot)
-        current_target = current_main_target(memory, pid)
-        if current_target != target:
-            print("CURRENT_MAIN_TARGET", current_target, flush=True)
-        target = current_target
+        targets = current_main_targets(memory, pid)
         gateway_auth, gateway_login, gateway_auth_session, gateway_login_session = gateway
         main_auth, main_login, main_auth_session, main_login_session = main
+    if args.fresh_capture:
+        targets = [target]
     gw = fresh.connect_and_login("operate-global-game",
         fresh.replace_auth_blob(gateway_auth, auth_blob), gateway_login,
         gateway_auth_session, gateway_login_session)
     if gw is None:
         raise SystemExit("LOGIN_REJECTED gateway")
     gw[0].sock.close()
-    session = fresh.connect_and_login(target,
-        fresh.replace_auth_blob(main_auth, auth_blob), main_login,
-        main_auth_session, main_login_session)
-    if session is None:
-        raise SystemExit("LOGIN_REJECTED main")
-    conn, compressor, pending = session
     next_session = max(main_auth_session, main_login_session) + 1
+    probe_type = next(iter(dict.fromkeys(args.types)))
+    session = None
+    first_body = None
+    for candidate in targets:
+        trial = fresh.connect_and_login(candidate,
+            fresh.replace_auth_blob(main_auth, auth_blob), main_login,
+            main_auth_session, main_login_session)
+        if trial is None:
+            print("MAIN_TARGET_REJECTED", candidate, "login", flush=True)
+            continue
+        conn, compressor, pending = trial
+        try:
+            rpc = pilot.build_generic_app(next_session, "Summon.QuerySummonHistory", [probe_type, 1])
+            fresh.send_app(conn, compressor, rpc)
+            first_body = decode_history(recv_for_session(conn, next_session, pending, pilot), probe_type, 1)
+        except (OSError, TimeoutError, RuntimeError, ValueError) as exc:
+            print("MAIN_TARGET_REJECTED", candidate, type(exc).__name__, flush=True)
+            conn.sock.close()
+            continue
+        session = trial
+        target = candidate
+        print("CURRENT_MAIN_TARGET", target, flush=True)
+        break
+    if session is None:
+        raise SystemExit("NO_VALID_MAIN_TARGET")
+    conn, compressor, pending = session
     request_count = 0
     interrupted = False
     try:
@@ -269,16 +295,20 @@ def main() -> None:
                 page = pages.pop(0)
                 if page > args.max_pages:
                     raise ValueError(f"类别 {history_type} 超过 --max-pages")
-                rpc = pilot.build_generic_app(next_session, "Summon.QuerySummonHistory", [history_type, page])
-                fresh.send_app(conn, compressor, rpc)
-                try:
-                    blobs = recv_for_session(conn, next_session, pending, pilot)
-                except (OSError, TimeoutError, RuntimeError) as exc:
-                    print("CONNECTION_PAUSED", type(exc).__name__, "after", request_count,
-                          "pages; saved data remains available", flush=True)
-                    interrupted = True
-                    break
-                body = decode_history(blobs, history_type, page)
+                if history_type == probe_type and page == 1 and first_body is not None:
+                    body = first_body
+                    first_body = None
+                else:
+                    rpc = pilot.build_generic_app(next_session, "Summon.QuerySummonHistory", [history_type, page])
+                    fresh.send_app(conn, compressor, rpc)
+                    try:
+                        blobs = recv_for_session(conn, next_session, pending, pilot)
+                    except (OSError, TimeoutError, RuntimeError) as exc:
+                        print("CONNECTION_PAUSED", type(exc).__name__, "after", request_count,
+                              "pages; saved data remains available", flush=True)
+                        interrupted = True
+                        break
+                    body = decode_history(blobs, history_type, page)
                 if category_count is None:
                     category_count = body["count"]
                 elif body["count"] != category_count:
